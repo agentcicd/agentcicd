@@ -1,0 +1,34 @@
+cases:
+  - name: join_using
+    snippet: SELECT * FROM a JOIN b USING (id)
+    expected_message: JOIN .* USING
+  - name: natural_join
+    snippet: SELECT * FROM a NATURAL JOIN b
+    expected_message: NATURAL JOIN
+  - name: cross_join
+    snippet: SELECT * FROM a CROSS JOIN b
+    expected_message: cross join
+  - name: non_equi_join
+    snippet: SELECT * FROM a JOIN b ON a.score > b.score
+    expected_message: non-equi
+  - name: pivot
+    snippet: SELECT * FROM a PIVOT (AVG(score) FOR segment IN ('x'))
+    expected_message: PIVOT
+  - name: lateral_view
+    snippet: SELECT * FROM a LATERAL VIEW explode(events) e AS event
+    expected_message: LATERAL VIEW
+  - name: scalar_subquery
+    snippet: SELECT (SELECT max(score) FROM b) AS m FROM a
+    expected_message: scalar subquery
+  - name: qualify
+    snippet: SELECT *, row_number() OVER (PARTITION BY segment ORDER BY score) AS rn FROM a QUALIFY rn = 1
+    expected_message: QUALIFY
+  - name: window_frame
+    snippet: SELECT SUM(score) OVER (PARTITION BY segment ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS score_sum FROM a
+    expected_message: window frame
+  - name: physical_cell_field
+    snippet: SELECT score.metadata.errors AS errors FROM a
+    expected_message: physical cell field access
+  - name: legacy_load_wrap_false
+    script: LOAD a FROM 'unused' WITH FORMAT='parquet', WRAP=false;
+    expected_message: always wraps

@@ -1,0 +1,7 @@
+tables:
+  echoed:
+    count: 3
+    rows:
+      - {case_id.value: case-001, echoed_text.value: echo:alpha}
+      - {case_id.value: case-002, echoed_text.value: echo:beta}
+      - {case_id.value: case-003, echoed_text.value: echo:gamma}

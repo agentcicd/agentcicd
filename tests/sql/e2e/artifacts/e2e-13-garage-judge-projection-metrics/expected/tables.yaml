@@ -1,0 +1,56 @@
+tables:
+  citation_examples:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_2}
+        cells:
+          passage_text: {value: "ExampleDB launched a beta product in 2021.", errors: []}
+          gold_support_label: {value: related_but_insufficient, errors: []}
+          gold_citation_label: {value: should_not_cite, errors: []}
+      - match: {sample_id.value: error-1, passage_id.value: cite_1}
+        cells:
+          passage_provider: {value: ent, errors: []}
+          gold_support_label: {value: answers_question, errors: []}
+  parsed_small_judgments:
+    rows:
+      - match: {sample_id.value: error-1, passage_id.value: cite_1}
+        cells:
+          small_relevance_label: {value: relevant, errors: []}
+          small_support_label: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+          small_citation_label: {value: should_cite, errors: []}
+  evaluated_citations:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_2}
+        cells:
+          large_support_label: {value: related_but_insufficient, errors: []}
+          small_support_label: {value: answers_question, errors: []}
+          small_support_correct: {approx: 0.0, errors: []}
+          workflow_disagreed: {approx: 1.0, errors: []}
+      - match: {sample_id.value: error-1, passage_id.value: cite_1}
+        cells:
+          small_support_label: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+          small_support_correct: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+          workflow_disagreed: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+  score_rows:
+    rows:
+      - match: {metric.value: large_support_accuracy}
+        cells:
+          value: {approx: 1.0, errors: []}
+          tags: {value: {workflow: global_large, task: support}, errors: []}
+      - match: {metric.value: small_citation_accuracy}
+        cells:
+          value: {approx: 0.66667, errors: []}
+          tags: {value: {workflow: local_small, task: citation}, errors: []}
+      - match: {metric.value: over_citation_rate}
+        cells:
+          value: {approx: 0.33333, errors: []}
+  slice_score_rows:
+    rows:
+      - match: {metric.value: support_accuracy_by_gold_label, tags.value.workflow: local_small, tags.value.gold_support_label: related_but_insufficient}
+        cells:
+          value: {approx: 0.0, errors: []}
+  issue_rows:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_2}
+        cells:
+          title: {value: "Global large and local small workflows disagree", errors: []}
+          severity: {value: medium, errors: []}

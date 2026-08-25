@@ -1,0 +1,4 @@
+kind: raw_parquet
+rows:
+  - {case_id: a, score: "0.9"}
+  - {case_id: b, score: "0.2"}

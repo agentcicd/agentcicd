@@ -1,0 +1,9 @@
+kind: wrapped_parquet
+value_schema:
+  case_id: string
+  score: double
+rows:
+  - case_id: {value: a}
+    score: {value: 0.8}
+  - case_id: {value: b}
+    score: {value: 0.45}

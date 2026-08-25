@@ -1,0 +1,26 @@
+id: e2e-15-garage-rerun-failed-stage
+name: GaRAGe rerun failed stage
+description: Retries a failed GaRAGe judgment parse stage while reusing clean upstream citation preparation.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_raw: inputs/garage_fixed.yaml
+fixtures: []
+execution:
+  kind: rerun_sequence
+  attempts:
+    - id: first
+      recipe: recipe_fail_parse.sql
+      inputs:
+        garage_raw: inputs/garage_bad.yaml
+      expect_failure:
+        stage: parsed_small_judgments
+        error_contains: malformed small judge response
+    - id: retry_parse
+      recipe: recipe.sql
+      previous_attempt: first
+      reuse: [citation_examples]
+      inputs:
+        garage_raw: inputs/garage_bad.yaml
+expected:
+  reruns: expected/reruns.yaml

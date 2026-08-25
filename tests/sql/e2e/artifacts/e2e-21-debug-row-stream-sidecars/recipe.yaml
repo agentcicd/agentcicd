@@ -1,0 +1,17 @@
+id: e2e-21-debug-row-stream-sidecars
+name: Debug row stream sidecars
+description: Writes full-cell JSONL debug sidecars for materialized tables.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  cases_csv: inputs/cases.csv
+execution:
+  kind: recipe
+  debug:
+    enabled: true
+    table_row_streams: true
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  debug_sidecars: expected/debug_sidecars.yaml

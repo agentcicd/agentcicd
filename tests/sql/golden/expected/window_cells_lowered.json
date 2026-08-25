@@ -1,0 +1,9 @@
+{
+  "contains": [
+    "customer_id AS customer_id",
+    "ROW_NUMBER() OVER (PARTITION BY segment.value ORDER BY score.value DESC)",
+    "NAMED_STRUCT",
+    "'value'",
+    "'errors'"
+  ]
+}

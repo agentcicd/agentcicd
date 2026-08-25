@@ -1,0 +1,4 @@
+case_id,policy_id,customer_message,policy_json,priority
+case-001,policy-shipping,"Where is order ORD-1001?","{""steps"":[""greet"",""verify"",""lookup""],""threshold"":0.75}",1
+case-002,policy-refund,"I want a refund","{""steps"":[""empathize"",""explain""],""threshold"":0.65}",2
+case-003,policy-cancel,"  PLEASE cancel my order  ","{""steps"":[""verify"",""cancel""],""threshold"":0.80}",3

@@ -1,0 +1,15 @@
+tables:
+  harness_runs:
+    rows:
+      - match:
+          case_id.value: case-1
+          status.value: completed
+          final_output.value: "resolved:Reply exactly: harness ok"
+          harness.value: codex
+          returncode.value: 0
+        cells:
+          result: {errors: []}
+          status: {value: completed, errors: []}
+          final_output: {value: "resolved:Reply exactly: harness ok", errors: []}
+          harness: {value: codex, errors: []}
+          returncode: {value: 0, errors: []}

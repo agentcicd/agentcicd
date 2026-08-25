@@ -1,0 +1,36 @@
+id: e2e-19-garage-rerun-adversarial-boundaries
+name: GaRAGe rerun adversarial boundaries
+description: Attempts contaminated reuse of an error-bearing judge stage and verifies clean stages can be reused after non-semantic env changes.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_raw: inputs/garage.yaml
+fixtures:
+  - fixtures/judge.citation.yaml
+execution:
+  kind: rerun_sequence
+  run_id: e2e-19-adversarial-run
+  attempts:
+    - id: first_error_manifest
+      recipe: recipe.sql
+      inputs:
+        garage_raw: inputs/garage.yaml
+      env:
+        AGENTCICD_E2E_CITATION_FAIL_CASES: c2
+    - id: contaminated_reuse_request
+      recipe: recipe.sql
+      previous_attempt: first_error_manifest
+      reuse: [citation_examples, judged_citations]
+      inputs:
+        garage_raw: inputs/garage.yaml
+    - id: physical_env_change_reuse
+      recipe: recipe.sql
+      previous_attempt: contaminated_reuse_request
+      reuse: [citation_examples, judged_citations, evaluated_citations, score_rows]
+      inputs:
+        garage_raw: inputs/garage.yaml
+      env:
+        AGENTCICD_FIXTURE_MAX_IN_FLIGHT: "4"
+expected:
+  reruns: expected/reruns.yaml
+

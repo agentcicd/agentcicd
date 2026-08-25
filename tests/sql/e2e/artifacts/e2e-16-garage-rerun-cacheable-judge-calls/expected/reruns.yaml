@@ -1,0 +1,27 @@
+attempts:
+  first:
+    recomputed: [citation_examples, judged_citations, evaluated_citations, score_rows]
+    clean_manifests: [citation_examples]
+    fixture_calls:
+      judge.citation:
+        count: 3
+  retry_failed_call:
+    skipped: [citation_examples]
+    recomputed: [judged_citations, evaluated_citations, score_rows]
+    forbidden_skips: [judged_citations]
+    clean_manifests: [judged_citations, evaluated_citations, score_rows]
+    fixture_calls:
+      judge.citation:
+        count: 1
+        by_arg:
+          case_id=c3: 1
+  changed_one_call:
+    recomputed: [citation_examples, judged_citations, evaluated_citations, score_rows]
+    forbidden_skips: [judged_citations]
+    clean_manifests: [judged_citations, evaluated_citations, score_rows]
+    fixture_calls:
+      judge.citation:
+        count: 1
+        by_arg:
+          case_id=c2: 1
+

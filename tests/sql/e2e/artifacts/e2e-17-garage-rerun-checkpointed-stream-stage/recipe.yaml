@@ -1,0 +1,33 @@
+id: e2e-17-garage-rerun-checkpointed-stream-stage
+name: GaRAGe rerun checkpointed stream stage
+description: Reuses a checkpointed stream citation stage after downstream failure and recomputes it when the stream input changes.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_raw: inputs/garage_v1.yaml
+fixtures: []
+execution:
+  kind: rerun_sequence
+  attempts:
+    - id: first
+      recipe: recipe_fail_downstream.sql
+      inputs:
+        garage_raw: inputs/garage_v1.yaml
+      expect_failure:
+        stage: parsed_small_judgments
+        error_contains: stream downstream failure
+    - id: retry_downstream
+      recipe: recipe.sql
+      previous_attempt: first
+      reuse: [citation_examples_stream]
+      inputs:
+        garage_raw: inputs/garage_v1.yaml
+    - id: rerun_stream_with_new_file
+      recipe: recipe.sql
+      previous_attempt: retry_downstream
+      reuse: []
+      inputs:
+        garage_raw: inputs/garage_v2.yaml
+expected:
+  reruns: expected/reruns.yaml
+

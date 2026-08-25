@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcicd.dev/schemas/inspection-v1.schema.json",
+  "title": "AgentCICD inspection-v1 envelope",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": "inspection-v1" },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "compare": { "type": "boolean" },
+        "rerun": { "type": "boolean" },
+        "cancel": { "type": "boolean" },
+        "annotate": { "type": "boolean" },
+        "open_external_resource": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,15 @@
+kind: wrapped_parquet
+value_schema:
+  policy_id: string
+  segment: string
+  baseline_score: double
+rows:
+  - policy_id: {value: policy-shipping}
+    segment: {value: shipping}
+    baseline_score: {value: 0.80}
+  - policy_id: {value: policy-refund}
+    segment: {value: refund}
+    baseline_score: {value: 0.70}
+  - policy_id: {value: policy-cancel}
+    segment: {value: cancellation}
+    baseline_score: {value: 0.82}

@@ -1,0 +1,4 @@
+case_id,segment,score_text,message,payload_json,labels,chosen_pos
+lin-001,retail,0.75,"  HELLO metadata  ","{""category"":""billing"",""boost"":0.05,""items"":[""alpha"",""beta""]}","A|B",1
+lin-002,retail,0.25,"Second Case","{""category"":""refund"",""boost"":0.10,""items"":[""gamma""]}","C",0
+lin-003,enterprise,not-a-number,"Third Case","{""category"":""enterprise"",""boost"":""bad"",""items"":[]}","",0

@@ -1,0 +1,11 @@
+tables:
+  evaluated:
+    rows:
+      - match: {case_id.value: case-001}
+        cells:
+          score: {approx: 0.91, errors: []}
+          passed: {value: true, errors: []}
+      - match: {case_id.value: case-002}
+        cells:
+          score: {approx: 0.62, errors: []}
+          passed: {value: false, errors: []}

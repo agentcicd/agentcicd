@@ -1,0 +1,21 @@
+kind: raw_parquet
+rows:
+  - sample_id: q1
+    question: How long is the warranty?
+    passage_id: p1
+    passage_text: Warranty lasts two years.
+    expected_label: relevant
+    response_label: relevant
+  - sample_id: q1
+    question: How long is the warranty?
+    passage_id: p2
+    passage_text: Paint colors vary by trim.
+    expected_label: not_relevant
+    response_label: not_relevant
+  - sample_id: q2
+    question: When should I change oil?
+    passage_id: p3
+    passage_text: Change oil every 5000 miles.
+    expected_label: relevant
+    response_label: MALFORMED
+

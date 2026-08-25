@@ -1,0 +1,84 @@
+tables:
+  prepared:
+    rows:
+      - match: {id.value: lin-001}
+        cells:
+          id:
+            value: lin-001
+            errors: []
+          score:
+            approx: 0.75
+            errors: []
+          score_plus_one:
+            approx: 1.75
+            errors: []
+          literal_one:
+            value: 1
+            errors: []
+          normalized_message:
+            value: hello metadata
+            errors: []
+          category:
+            value: billing
+            errors: []
+          boost:
+            approx: 0.05
+            errors: []
+          chosen_label:
+            value: B
+            errors: []
+      - match: {id.value: lin-003}
+        cells:
+          score: {errors: [AGENTCICD_CAST_ERROR]}
+          boost: {errors: [AGENTCICD_CAST_ERROR]}
+  embedded:
+    rows:
+      - match: {id.value: lin-001}
+        cells:
+          embedding:
+            errors: []
+          embedding_model:
+            value: bge
+            errors: []
+  exploded_items:
+    rows:
+      - match: {id.value: lin-001, item_text.value: alpha}
+        cells:
+          item_text:
+            value: alpha
+            errors: []
+          item_pos: {value: 0, errors: []}
+      - match: {id.value: lin-001, item_text.value: beta}
+        cells:
+          item_text: {value: beta, errors: []}
+  joined_scores:
+    rows:
+      - match: {id.value: lin-001}
+        cells:
+          baseline_score:
+            approx: 0.6
+            errors: []
+          delta:
+            approx: 0.15
+            errors: []
+      - match: {id.value: lin-003}
+        cells:
+          baseline_score: {value: null, errors: []}
+          delta: {errors: [AGENTCICD_CAST_ERROR]}
+  segment_summary:
+    rows:
+      - match: {segment.value: retail}
+        cells:
+          row_count: {value: 2, errors: []}
+          avg_score: {approx: 0.5, errors: []}
+      - match: {segment.value: enterprise}
+        cells:
+          avg_score: {errors: [AGENTCICD_CAST_ERROR]}
+  unioned_scores:
+    rows:
+      - match: {id.value: lin-001, source_branch.value: prepared}
+        cells:
+          score: {approx: 0.75, errors: []}
+      - match: {id.value: lin-001, source_branch.value: baseline}
+        cells:
+          score: {approx: 0.6, errors: []}

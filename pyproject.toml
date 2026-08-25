@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=60.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentcicd"
+version = "0.1.0"
+description = "Open source AgentCICD Engine folder runner"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "sqlglot>=28.0.0,<29.0.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.7.0",
+    "pandas>=2.0.0",
+    "pyarrow>=15.0.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "typer>=0.9.0",
+]
+
+[project.optional-dependencies]
+spark = [
+    "delta-spark>=4.2,<4.3",
+    "minio>=7.2.7",
+    "pyspark>=4.1,<4.2",
+    "tqdm>=4.66.0",
+]
+fixtures = [
+    "a2a-sdk>=0.3.0",
+    "aiohttp>=3.8.0",
+    "httpx>=0.27.0",
+    "litellm>=1.83.8",
+    "mcp>=1.27.0",
+    "openai>=1.0.0",
+    "playwright>=1.45.0",
+    "pydantic>=2.7.0",
+    "pypdf>=4.0.0",
+    "ragas>=0.4.0",
+    "rapidfuzz>=3.0.0",
+    "rouge_score>=0.1.2",
+    "sacrebleu>=2.3.0",
+]
+sandbox = []
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+dev = [
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+agentcicd = "agentcicd.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"agentcicd.sql" = ["builtin_fixtures_manifest.json"]
+"agentcicd.inspection" = ["inspection-v1.schema.json"]
+"agentcicd" = ["ui_static/**"]

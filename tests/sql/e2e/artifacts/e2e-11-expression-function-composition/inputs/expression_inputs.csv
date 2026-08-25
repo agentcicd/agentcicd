@@ -1,0 +1,5 @@
+case_id,score_text,flag,message,payload_json
+expr-001,0.80,true,"  HELLO world  ","{""boost"":0.05,""category"":""a"",""items"":[1,2]}"
+expr-002,-0.20,false,"NORMALIZE_FAIL","{""boost"":0.10,""category"":""b"",""items"":[]}"
+expr-003,not-a-number,true,"EMBED_FAIL","{""boost"":""bad"",""category"":""c"",""items"":[3]}"
+expr-004,,false,"plain text","{""category"":null,""items"":null}"

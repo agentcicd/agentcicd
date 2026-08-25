@@ -1,0 +1,6 @@
+row_id,score_text,payload_text,note
+1,0.91,"{""score"":0.91,""labels"":[""a"",""b""]}",clean
+2,not-a-number,"{""score"":""bad"",""labels"":[]}",bad cast
+3,0.40,"{bad json",bad json
+4,0.70,"{""labels"":[""x""]}",missing score
+5,NORMALIZE_FAIL,"{""score"":0.1}",local udf failure

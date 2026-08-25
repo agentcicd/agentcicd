@@ -1,0 +1,16 @@
+id: e2e-02-branch-runtime-errors
+name: Branch-aware runtime errors
+description: Helper recovery, runtime error cells, and input-error runtime skip semantics.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  wrapped_messages_parquet: inputs/wrapped_messages.yaml
+fixtures:
+  - fixtures/embed.text.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  fixture_calls: expected/fixture_calls.yaml

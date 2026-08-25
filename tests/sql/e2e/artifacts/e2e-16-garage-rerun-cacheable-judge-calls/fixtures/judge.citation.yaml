@@ -1,0 +1,22 @@
+kind: http_runtime
+name: judge.citation
+call_name: judge.citation
+runtime_alias: judge_citation
+invoke_path: /invoke/judge.citation
+cache: true
+signature:
+  parameters:
+    - {name: case_id, type_sql: STRING, has_default: false}
+    - {name: sample_id, type_sql: STRING, has_default: false}
+    - {name: passage_id, type_sql: STRING, has_default: false}
+    - {name: passage_text, type_sql: STRING, has_default: false}
+    - {name: judge_version, type_sql: STRING, has_default: false}
+output_schema:
+  type: object
+  properties:
+    relevance_label: {type: string}
+    support_label: {type: string}
+    citation_label: {type: string}
+    confidence: {type: number}
+    rationale: {type: string}
+

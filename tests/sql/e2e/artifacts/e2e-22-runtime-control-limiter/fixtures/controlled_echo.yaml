@@ -1,0 +1,9 @@
+kind: local_udf
+name: controlled_echo
+runtime_alias: controlled_echo
+implementation: controlled_echo
+signature:
+  parameters:
+    - {name: text, type_sql: STRING, has_default: false}
+    - {name: limiter, type_sql: ANY, has_default: true}
+return_type_sql: STRING

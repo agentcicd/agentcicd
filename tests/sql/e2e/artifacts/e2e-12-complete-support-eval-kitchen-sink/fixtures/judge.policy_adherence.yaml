@@ -1,0 +1,17 @@
+kind: http_runtime
+name: judge.policy_adherence
+call_name: judge.policy_adherence
+runtime_alias: judge_policy_adherence
+invoke_path: /invoke/judge.policy_adherence
+signature:
+  parameters:
+    - {name: case_id, type_sql: STRING, has_default: false}
+    - {name: history, type_sql: VARIANT, has_default: false}
+    - {name: policy, type_sql: VARIANT, has_default: false}
+output_schema:
+  type: object
+  properties:
+    score: {type: number}
+    pass: {type: boolean}
+    reasons: {type: array, items: {type: string}}
+    tags: {type: object, additionalProperties: {type: string}}

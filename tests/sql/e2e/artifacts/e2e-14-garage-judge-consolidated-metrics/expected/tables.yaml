@@ -1,0 +1,85 @@
+tables:
+  citation_examples:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_2}
+        cells:
+          passage_text: {value: "ExampleDB launched a beta product in 2021.", errors: []}
+          gold_support_label: {value: related_but_insufficient, errors: []}
+          gold_citation_label: {value: should_not_cite, errors: []}
+      - match: {sample_id.value: error-1, passage_id.value: cite_1}
+        cells:
+          passage_provider: {value: ent, errors: []}
+          gold_support_label: {value: answers_question, errors: []}
+  parsed_large_judgments:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_1}
+        cells:
+          large_support_label: {value: answers_question, errors: []}
+          large_rationale: {value: "Direct acquisition evidence.", errors: []}
+  parsed_small_judgments:
+    rows:
+      - match: {sample_id.value: error-1, passage_id.value: cite_1}
+        cells:
+          judgment: {value_type: json}
+          small_relevance_label: {value: relevant, errors: []}
+          small_support_label: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+          small_citation_label: {value: should_cite, errors: []}
+  judge_usage_summary:
+    rows:
+      - match: {workflow.value: global_large}
+        cells:
+          call_grain: {value: question, errors: []}
+          call_count: {approx: 2.0, errors: []}
+          input_tokens: {approx: 180.0, errors: []}
+          output_tokens: {approx: 90.0, errors: []}
+          total_tokens: {approx: 270.0, errors: []}
+          cost_usd: {approx: 0.005, errors: []}
+      - match: {workflow.value: local_small}
+        cells:
+          call_grain: {value: citation, errors: []}
+          call_count: {approx: 3.0, errors: []}
+          input_tokens: {approx: 33.0, errors: []}
+          output_tokens: {approx: 15.0, errors: []}
+          total_tokens: {approx: 48.0, errors: []}
+          cost_usd: {approx: 0.00105, errors: []}
+  evaluated_citations:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_2}
+        cells:
+          large_support_label: {value: related_but_insufficient, errors: []}
+          small_support_label: {value: answers_question, errors: []}
+          small_support_correct: {approx: 0.0, errors: []}
+          workflow_disagreed: {approx: 1.0, errors: []}
+      - match: {sample_id.value: error-1, passage_id.value: cite_1}
+        cells:
+          small_support_label: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+          small_support_correct: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+          workflow_disagreed: {errors: [AGENTCICD_JSON_ACCESS_ERROR]}
+  score_rows:
+    rows:
+      - match: {metric.value: large_support_accuracy}
+        cells:
+          value: {approx: 1.0, errors: []}
+          tags: {value: {workflow: global_large, task: support}, errors: []}
+      - match: {metric.value: small_citation_accuracy}
+        cells:
+          tags: {value: {workflow: local_small, task: citation}, errors: []}
+      - match: {metric.value: over_citation_rate}
+        cells: {}
+      - match: {metric.value: judge_call_count, tags.value.workflow: global_large}
+        cells:
+          value: {approx: 2.0, errors: []}
+      - match: {metric.value: judge_total_tokens, tags.value.workflow: local_small}
+        cells:
+          value: {approx: 48.0, errors: []}
+      - match: {metric.value: judge_calls_per_citation, tags.value.workflow: global_large}
+        cells: {}
+      - match: {metric.value: support_accuracy_by_gold_label, tags.value.workflow: local_small, tags.value.gold_support_label: related_but_insufficient}
+        cells:
+          value: {approx: 0.0, errors: []}
+  issue_rows:
+    rows:
+      - match: {sample_id.value: clean-1, passage_id.value: cite_2}
+        cells:
+          title: {value: "Global large and local small workflows disagree", errors: []}
+          severity: {value: medium, errors: []}

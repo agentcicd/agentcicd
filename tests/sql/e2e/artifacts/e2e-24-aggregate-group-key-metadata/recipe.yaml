@@ -1,0 +1,14 @@
+id: e2e-24-aggregate-group-key-metadata
+name: Aggregate grouped-key metadata
+description: Aggregate projections can embed grouped keys inside structs/maps without leaking unaggregated cell metadata.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  metric_rows_csv: inputs/metric_rows.csv
+fixtures: []
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml

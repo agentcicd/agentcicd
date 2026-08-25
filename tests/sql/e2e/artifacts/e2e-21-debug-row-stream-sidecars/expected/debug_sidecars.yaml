@@ -1,0 +1,6 @@
+tables:
+  evaluated:
+    count: 3
+    rows:
+      - {case_id.value: case-001, score.value: 0.91, passed.value: true, note.value: good}
+      - {case_id.value: case-002, score.value: 0.62, passed.value: false, note.value: needs review}

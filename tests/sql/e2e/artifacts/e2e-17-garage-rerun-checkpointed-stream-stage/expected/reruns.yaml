@@ -1,0 +1,18 @@
+attempts:
+  retry_downstream:
+    skipped: [citation_examples_stream]
+    recomputed: [parsed_small_judgments, score_rows]
+    forbidden_skips: [parsed_small_judgments, score_rows]
+    clean_manifests: [parsed_small_judgments, score_rows]
+    row_counts:
+      parsed_small_judgments: 2
+      score_rows: 1
+  rerun_stream_with_new_file:
+    recomputed: [citation_examples_stream, parsed_small_judgments, score_rows]
+    forbidden_skips: [citation_examples_stream, parsed_small_judgments]
+    clean_manifests: [citation_examples_stream, parsed_small_judgments, score_rows]
+    row_counts:
+      citation_examples_stream: 3
+      parsed_small_judgments: 3
+      score_rows: 1
+

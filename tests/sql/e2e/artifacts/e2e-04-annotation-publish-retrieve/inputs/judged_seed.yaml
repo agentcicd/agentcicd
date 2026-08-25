@@ -1,0 +1,20 @@
+kind: wrapped_parquet
+value_schema:
+  evaluation_case_id: string
+  intent: string
+  score: double
+  passed: boolean
+rows:
+  - evaluation_case_id: {value: case-001}
+    intent: {value: order_status}
+    score: {value: 0.9}
+    passed: {value: true}
+  - evaluation_case_id: {value: case-002}
+    intent: {value: refund}
+    score: {value: 0.65}
+    passed: {value: false}
+  - evaluation_case_id: {value: case-003}
+    intent: {value: cancel}
+    score:
+      error: {code: AGENTCICD_UPSTREAM, message: judge failed, source: fixture}
+    passed: {value: false}

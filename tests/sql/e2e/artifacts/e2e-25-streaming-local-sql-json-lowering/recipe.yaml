@@ -1,0 +1,13 @@
+id: e2e-25-streaming-local-sql-json-lowering
+name: Streaming local SQL JSON lowering
+description: Expands local SQL functions inside parse_json path access in streaming stages and downstream reads.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  raw_outputs: inputs/raw_outputs.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml

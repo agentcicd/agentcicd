@@ -1,0 +1,35 @@
+id: e2e-18-garage-double-rerun-reuse
+name: GaRAGe double rerun reuse
+description: Chains two reruns and verifies the second rerun uses the immediate prior attempt as its reusable object root.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_raw: inputs/garage_fixed.yaml
+fixtures: []
+execution:
+  kind: rerun_sequence
+  attempts:
+    - id: first
+      recipe: recipe_fail_parse.sql
+      inputs:
+        garage_raw: inputs/garage_bad.yaml
+      expect_failure:
+        stage: parsed_small_judgments
+        error_contains: malformed double rerun response
+    - id: retry_parse_then_fail_score
+      recipe: recipe_fail_score.sql
+      previous_attempt: first
+      reuse: [citation_examples]
+      inputs:
+        garage_raw: inputs/garage_bad.yaml
+      expect_failure:
+        stage: score_rows
+        error_contains: score rerun failure
+    - id: retry_score
+      recipe: recipe.sql
+      previous_attempt: retry_parse_then_fail_score
+      reuse: [citation_examples, parsed_small_judgments, evaluated_citations]
+      inputs:
+        garage_raw: inputs/garage_bad.yaml
+expected:
+  reruns: expected/reruns.yaml

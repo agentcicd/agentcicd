@@ -1,0 +1,7 @@
+kind: annotation_store
+name: policy_review_store
+requests:
+  policy_review:
+    completed:
+      - {case_id: case-002, label: approve}
+      - {case_id: case-003, label: needs_followup}

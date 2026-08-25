@@ -1,0 +1,5 @@
+kind: annotation_results
+annotation_id: policy_review
+rows:
+  - {case_id: case-002, label: approve}
+  - {case_id: case-003, label: needs_followup}

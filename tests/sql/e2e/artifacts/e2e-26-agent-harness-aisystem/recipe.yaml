@@ -1,0 +1,14 @@
+id: e2e-26-agent-harness-aisystem
+name: Agent harness AISYSTEM resolution
+description: Exercises envs.agent_harness with an existing LLM AISYSTEM resolved to a Codex harness and auth.
+markers: [spark, e2e]
+include_cells: true
+inputs: {}
+fixtures:
+  - fixtures/fake-codex-harness.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml

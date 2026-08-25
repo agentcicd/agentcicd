@@ -1,0 +1,3 @@
+stages:
+  - streamed_scores
+  - final_scores

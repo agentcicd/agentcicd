@@ -1,0 +1,18 @@
+tables:
+  inspected:
+    rows:
+      - match: {case_id.value: upstream-bad}
+        cells:
+          input_is_err: {value: true, errors: []}
+          safe_message: {value: fallback-message, errors: []}
+          route: {value: input-error, errors: []}
+      - match: {case_id.value: ok-002}
+        cells:
+          embed_failed: {value: true, errors: []}
+          safe_model: {value: fallback-model, errors: []}
+          route: {value: embed-error, errors: []}
+      - match: {case_id.value: ok-001}
+        cells:
+          input_is_err: {value: false, errors: []}
+          safe_model: {value: bge, errors: []}
+          route: {value: clean, errors: []}

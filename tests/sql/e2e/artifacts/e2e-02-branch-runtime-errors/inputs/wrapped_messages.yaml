@@ -1,0 +1,14 @@
+kind: wrapped_parquet
+value_schema:
+  case_id: string
+  customer_message: string
+rows:
+  - case_id: {value: ok-001}
+    customer_message: {value: normal question}
+  - case_id: {value: rt-http_500}
+    customer_message: {value: trigger remote failure}
+  - case_id: {value: upstream-bad}
+    customer_message:
+      error: {code: AGENTCICD_FIXTURE_ERROR, message: upstream failure, source: fixture}
+  - case_id: {value: ok-002}
+    customer_message: {value: EMBED_FAIL should be recovered}

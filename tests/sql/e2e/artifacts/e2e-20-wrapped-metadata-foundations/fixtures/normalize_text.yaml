@@ -1,0 +1,8 @@
+kind: local_udf
+name: normalize_text
+runtime_alias: normalize_text
+implementation: normalize_text
+signature:
+  parameters:
+    - {name: text, type_sql: STRING, has_default: false}
+return_type_sql: STRING

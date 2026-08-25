@@ -1,0 +1,4 @@
+workflow,task,score
+global_large,support,1.0
+global_large,support,0.0
+local_small,support,1.0

@@ -1,0 +1,6 @@
+kind: fake_codex_harness
+aisystem_id: aisystem.codex
+secret_id: secret.codex
+target: codex:gpt-5-codex
+interface: llm.chat
+workspace_context: workspace_root

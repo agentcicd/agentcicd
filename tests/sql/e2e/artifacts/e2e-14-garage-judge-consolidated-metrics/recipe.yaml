@@ -1,0 +1,17 @@
+id: e2e-14-garage-judge-consolidated-metrics
+name: GaRAGe judge consolidated metrics
+description: Blog-style GaRAGe judge comparison with consolidated stage tables, mandatory usage extraction, JSON fence stripping, and propagated JSON access errors.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_jsonl: inputs/garage_fixture.jsonl
+  large_responses_jsonl: inputs/large_responses.jsonl
+  small_responses_jsonl: inputs/small_responses.jsonl
+fixtures: []
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  publishes: expected/publishes.yaml

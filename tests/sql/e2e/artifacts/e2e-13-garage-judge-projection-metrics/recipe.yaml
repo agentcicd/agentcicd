@@ -1,0 +1,17 @@
+id: e2e-13-garage-judge-projection-metrics
+name: GaRAGe judge projection metrics
+description: Blog-style GaRAGe judge comparison using projection generators, static chat fixtures, metrics, and JSON access errors.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_jsonl: inputs/garage_fixture.jsonl
+  large_responses_jsonl: inputs/large_responses.jsonl
+  small_responses_jsonl: inputs/small_responses.jsonl
+fixtures: []
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  publishes: expected/publishes.yaml

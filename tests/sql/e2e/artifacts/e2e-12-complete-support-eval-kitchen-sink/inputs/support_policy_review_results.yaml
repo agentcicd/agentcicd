@@ -1,0 +1,4 @@
+kind: annotation_results
+annotation_id: support_policy_review
+rows:
+  - {case_id: case-002, label: manual-review}

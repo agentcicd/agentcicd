@@ -1,0 +1,18 @@
+id: e2e-20-wrapped-metadata-foundations
+name: Wrapped metadata foundations
+description: Source, alias, literals, casts, access, local/runtime functions, generators, joins, aggregates, unions, and CTE/inner query metadata.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  metadata_cases_csv: inputs/metadata_cases.csv
+  baseline_scores_csv: inputs/baseline_scores.csv
+fixtures:
+  - fixtures/normalize_text.yaml
+  - fixtures/embed.text.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  fixture_calls: expected/fixture_calls.yaml

@@ -1,0 +1,6 @@
+kind: annotation_store
+name: support_policy_review_store
+requests:
+  support_policy_review:
+    completed:
+      - {case_id: case-002, label: manual-review}

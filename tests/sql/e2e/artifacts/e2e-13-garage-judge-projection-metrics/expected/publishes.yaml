@@ -1,0 +1,10 @@
+reports:
+  - component: metric
+    count: 5
+    rows:
+      - {metric.value: large_support_accuracy}
+      - {metric.value: over_citation_rate}
+  - component: issue
+    count: 1
+    rows:
+      - {sample_id: clean-1, passage_id: cite_2}

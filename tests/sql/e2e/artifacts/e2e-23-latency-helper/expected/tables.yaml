@@ -1,0 +1,26 @@
+tables:
+  latency_checks:
+    rows:
+      - match: {case_id.value: latency-001}
+        cells:
+          literal_latency_is_null: {value: true, errors: []}
+          random_latency_is_null: {value: true, errors: []}
+          derived_latency_is_null: {value: true, errors: []}
+          fixture_latency_present: {value: true, errors: []}
+          fixture_latency_non_negative: {value: true, errors: []}
+          embedding_model: {value: bge, errors: []}
+      - match: {case_id.value: latency-002}
+        cells:
+          literal_latency_is_null: {value: true, errors: []}
+          random_latency_is_null: {value: true, errors: []}
+          derived_latency_is_null: {value: true, errors: []}
+          fixture_latency_present: {value: true, errors: []}
+          fixture_latency_non_negative: {value: true, errors: []}
+          embedding_model: {value: bge, errors: []}
+  latency_summary:
+    rows:
+      - match: {row_count.value: 2}
+        cells:
+          fixture_latency_count: {value: 2, errors: []}
+          null_latency_count: {value: 2, errors: []}
+          aggregate_latency_is_null: {value: true, errors: []}

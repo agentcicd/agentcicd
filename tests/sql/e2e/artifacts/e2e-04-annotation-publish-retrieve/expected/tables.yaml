@@ -1,0 +1,26 @@
+tables:
+  annotation_candidates:
+    rows:
+      - match: {case_id.value: case-002}
+        cells:
+          score: {approx: 0.65, errors: []}
+          task_payload: {errors: []}
+      - match: {case_id.value: case-003}
+        cells:
+          score: {errors: [AGENTCICD_UPSTREAM]}
+  reviewed:
+    rows:
+      - match: {case_id.value: case-002}
+        cells:
+          label: {value: approve, errors: []}
+  final_report:
+    rows:
+      - match: {case_id.value: case-003}
+        cells:
+          review_label: {value: needs_followup, errors: []}
+          review_failed: {value: false, errors: []}
+  review_metrics:
+    rows:
+      - match: {metric.value: annotation_candidates}
+        cells:
+          value: {value: 2.0, errors: []}

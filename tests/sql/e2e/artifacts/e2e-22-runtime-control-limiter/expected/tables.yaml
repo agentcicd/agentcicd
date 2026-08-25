@@ -1,0 +1,26 @@
+tables:
+  echoed:
+    rows:
+      - match: {case_id.value: case-001}
+        cells:
+          echoed_text: {value: echo:alpha, errors: []}
+      - match: {case_id.value: case-002}
+        cells:
+          echoed_text: {value: echo:beta, errors: []}
+      - match: {case_id.value: case-003}
+        cells:
+          echoed_text: {value: echo:gamma, errors: []}
+  checked:
+    rows:
+      - match: {case_id.value: case-001}
+        cells:
+          echoed_failed: {value: false, errors: []}
+          echoed_value: {value: echo:alpha, errors: []}
+      - match: {case_id.value: case-002}
+        cells:
+          echoed_failed: {value: false, errors: []}
+          echoed_value: {value: echo:beta, errors: []}
+      - match: {case_id.value: case-003}
+        cells:
+          echoed_failed: {value: false, errors: []}
+          echoed_value: {value: echo:gamma, errors: []}

@@ -1,0 +1,9 @@
+attempts:
+  retry_score:
+    skipped: [citation_examples, parsed_small_judgments, evaluated_citations]
+    recomputed: [score_rows]
+    forbidden_skips: [score_rows]
+    clean_manifests: [score_rows]
+    row_counts:
+      score_rows: 2
+

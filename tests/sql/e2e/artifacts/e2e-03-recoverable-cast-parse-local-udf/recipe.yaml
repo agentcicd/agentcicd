@@ -1,0 +1,15 @@
+id: e2e-03-recoverable-cast-parse-local-udf
+name: Recoverable cast parse and local UDF failures
+description: Row-level safe cast, JSON parse, and local Python UDF recovery.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  scores_csv: inputs/scores.csv
+fixtures:
+  - fixtures/extract_json_score.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml

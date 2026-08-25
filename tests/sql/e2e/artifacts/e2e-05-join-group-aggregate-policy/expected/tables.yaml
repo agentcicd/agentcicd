@@ -1,0 +1,23 @@
+tables:
+  joined_scores:
+    rows:
+      - match: {case_id.value: a}
+        cells:
+          current_score:
+            approx: 0.9
+            errors: []
+          baseline_score:
+            approx: 0.8
+            errors: []
+          delta: {approx: 0.1, errors: []}
+  segment_summary:
+    rows:
+      - match: {segment.value: retail}
+        cells:
+          row_count: {value: 2, errors: []}
+          avg_score:
+            approx: 0.7
+            errors: []
+      - match: {segment.value: enterprise}
+        cells:
+          avg_score: {errors: [AGENTCICD_UPSTREAM]}

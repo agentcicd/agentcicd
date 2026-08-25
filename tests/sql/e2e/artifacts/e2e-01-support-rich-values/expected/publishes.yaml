@@ -1,0 +1,9 @@
+reports:
+  - component: metric
+    count: 3
+    rows:
+      - {metric.value: policy_adherence, value.value: 0.65}
+manifests:
+  - file: reports_metric_report_rows.json
+    contains:
+      component: metric

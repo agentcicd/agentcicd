@@ -1,0 +1,18 @@
+id: e2e-04-annotation-publish-retrieve
+name: Annotation publish retrieve lifecycle
+description: Publish wrapped annotation candidates, retrieve local annotation results, join them back, and publish dataset/report artifacts.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  judged_seed_parquet: inputs/judged_seed.yaml
+  annotation_request_id: inputs/policy_review_results.yaml
+fixtures:
+  - fixtures/policy_review_store.yaml
+  - fixtures/capture_publications.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  publishes: expected/publishes.yaml

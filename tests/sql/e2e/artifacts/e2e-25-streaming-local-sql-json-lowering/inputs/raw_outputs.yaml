@@ -1,0 +1,6 @@
+kind: raw_parquet
+rows:
+  - item_id: item-001
+    llm_response_json: '{"choices":[{"message":{"content":"```json\n{\"score\":3.5,\"confidence\":0.8,\"rationale\":\"clear answer\"}\n```"}}]}'
+  - item_id: item-002
+    llm_response_json: '{"choices":[{"message":{"content":"{\"score\":1.25,\"confidence\":0.4,\"rationale\":\"missing details\"}"}}]}'

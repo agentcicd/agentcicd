@@ -1,0 +1,34 @@
+id: e2e-16-garage-rerun-cacheable-judge-calls
+name: GaRAGe rerun cacheable judge calls
+description: Exercises cacheable HTTP citation judge calls across repeated GaRAGe reruns.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  garage_raw: inputs/garage_v1.yaml
+fixtures:
+  - fixtures/judge.citation.yaml
+execution:
+  kind: rerun_sequence
+  run_id: e2e-16-cache-run
+  attempts:
+    - id: first
+      recipe: recipe.sql
+      inputs:
+        garage_raw: inputs/garage_v1.yaml
+      env:
+        AGENTCICD_E2E_CITATION_FAIL_CASES: c3
+    - id: retry_failed_call
+      recipe: recipe.sql
+      previous_attempt: first
+      reuse: [citation_examples]
+      inputs:
+        garage_raw: inputs/garage_v1.yaml
+    - id: changed_one_call
+      recipe: recipe.sql
+      previous_attempt: retry_failed_call
+      reuse: []
+      inputs:
+        garage_raw: inputs/garage_v2.yaml
+expected:
+  reruns: expected/reruns.yaml
+

@@ -1,0 +1,18 @@
+kind: http_runtime
+name: support.simulate_turn
+call_name: support.simulate_turn
+runtime_alias: support_simulate_turn
+invoke_path: /invoke/support.simulate_turn
+signature:
+  parameters:
+    - {name: case_id, type_sql: STRING, has_default: false}
+    - {name: message, type_sql: STRING, has_default: false}
+    - {name: policy, type_sql: VARIANT, has_default: false}
+    - {name: policy_version, type_sql: STRING, has_default: false}
+output_schema:
+  type: object
+  properties:
+    history: {type: array, items: {type: object, additionalProperties: {type: json}}}
+    intent: {type: string}
+    terminated_by: {type: string}
+    score: {type: number}

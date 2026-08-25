@@ -1,0 +1,8 @@
+{
+  "contains": [
+    "NAMED_STRUCT",
+    "price.value + tax.value",
+    "price.value > 0",
+    "price.metadata.errors"
+  ]
+}

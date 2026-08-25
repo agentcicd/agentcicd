@@ -1,0 +1,6 @@
+kind: publication_store
+name: capture_publications
+capture:
+  reports: true
+  datasets: true
+  annotations: true

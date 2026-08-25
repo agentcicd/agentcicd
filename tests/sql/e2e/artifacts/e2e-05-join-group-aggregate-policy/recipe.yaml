@@ -1,0 +1,15 @@
+id: e2e-05-join-group-aggregate-policy
+name: Join group aggregate current policy
+description: Join scope, left join behavior, aggregate values, and current aggregate error policy.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  current_scores_parquet: inputs/current_scores.yaml
+  baseline_scores_parquet: inputs/baseline_scores.yaml
+fixtures: []
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml

@@ -1,0 +1,30 @@
+tables:
+  streamed_scores:
+    rows:
+      - match: {item_id.value: item-001}
+        cells:
+          score: {approx: 3.5, errors: []}
+          confidence: {approx: 0.8, errors: []}
+          rationale: {value: clear answer, errors: []}
+      - match: {item_id.value: item-002}
+        cells:
+          score: {approx: 1.25, errors: []}
+          confidence: {approx: 0.4, errors: []}
+          rationale: {value: missing details, errors: []}
+  final_scores:
+    rows:
+      - match: {workflow.value: streamed, item_id.value: item-001}
+        cells:
+          score: {approx: 3.5, errors: []}
+          confidence: {approx: 0.8, errors: []}
+          rationale: {value: clear answer, errors: []}
+      - match: {workflow.value: streamed, item_id.value: item-002}
+        cells:
+          score: {approx: 1.25, errors: []}
+          confidence: {approx: 0.4, errors: []}
+          rationale: {value: missing details, errors: []}
+      - match: {workflow.value: adjusted, item_id.value: item-001}
+        cells:
+          score: {approx: 4.0, errors: []}
+          confidence: {approx: 0.8, errors: []}
+          rationale: {value: clear answer, errors: []}

@@ -1,0 +1,19 @@
+id: e2e-22-runtime-control-limiter
+name: Runtime control limiter argument stripping
+description: Verifies a RATELIMIT control argument is not passed into a Spark local UDF even when the external spec is stale.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  cases_csv: inputs/cases.csv
+fixtures:
+  - fixtures/controlled_echo.yaml
+execution:
+  kind: recipe
+  debug:
+    enabled: true
+    table_row_streams: true
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  debug_sidecars: expected/debug_sidecars.yaml

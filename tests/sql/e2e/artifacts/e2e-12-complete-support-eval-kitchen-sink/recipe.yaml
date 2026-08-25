@@ -1,0 +1,25 @@
+id: e2e-12-complete-support-eval-kitchen-sink
+name: Complete support eval kitchen sink
+description: Multi-load support evaluation workflow covering local/runtime functions, joins, CTEs, windows, aggregates, annotation retrieval, dataset publish, and report publish.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  cases_csv: inputs/cases.csv
+  policies_jsonl: inputs/policies.jsonl
+  baseline_parquet: inputs/baseline.yaml
+  annotation_request_id: inputs/support_policy_review_results.yaml
+fixtures:
+  - fixtures/normalize_text.yaml
+  - fixtures/embed.text.yaml
+  - fixtures/support.simulate_turn.yaml
+  - fixtures/judge.policy_adherence.yaml
+  - fixtures/support_policy_review_store.yaml
+  - fixtures/capture_publications.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  fixture_calls: expected/fixture_calls.yaml
+  publishes: expected/publishes.yaml

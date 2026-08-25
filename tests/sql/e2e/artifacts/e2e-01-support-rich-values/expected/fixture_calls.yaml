@@ -1,0 +1,5 @@
+calls:
+  support.simulate_turn:
+    count: 6
+  judge.policy_adherence:
+    count: 3

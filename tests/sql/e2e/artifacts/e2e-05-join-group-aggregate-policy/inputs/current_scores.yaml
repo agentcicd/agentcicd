@@ -1,0 +1,19 @@
+kind: wrapped_parquet
+value_schema:
+  case_id: string
+  segment: string
+  score: double
+rows:
+  - case_id: {value: a}
+    segment: {value: retail}
+    score: {value: 0.9}
+  - case_id: {value: b}
+    segment: {value: retail}
+    score: {value: 0.5}
+  - case_id: {value: c}
+    segment: {value: enterprise}
+    score:
+      error: {code: AGENTCICD_UPSTREAM, message: bad score, source: fixture}
+  - case_id: {value: d}
+    segment: {value: null}
+    score: {value: 0.7}

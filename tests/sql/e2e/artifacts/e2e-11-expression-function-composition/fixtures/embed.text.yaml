@@ -1,0 +1,18 @@
+kind: http_runtime
+name: embed.text
+call_name: embed.text
+runtime_alias: embed_text
+invoke_path: /invoke/embed.text
+signature:
+  parameters:
+    - {name: text, type_sql: STRING, has_default: false}
+    - {name: model, type_sql: STRING, has_default: false}
+output_schema:
+  type: object
+  properties:
+    vector: {type: array, items: {type: number}}
+    model: {type: string}
+failure_rules:
+  - match: {text_contains: EMBED_FAIL}
+    status: 500
+    body: {error: embedding failed}

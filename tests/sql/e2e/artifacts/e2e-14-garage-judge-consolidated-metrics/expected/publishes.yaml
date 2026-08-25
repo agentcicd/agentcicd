@@ -1,0 +1,12 @@
+reports:
+  - component: metric
+    count: 17
+    rows:
+      - {metric.value: large_support_accuracy}
+      - {metric.value: judge_call_count, tags.workflow: global_large}
+      - {metric.value: judge_total_tokens, tags.workflow: local_small}
+      - {metric.value: support_accuracy_by_gold_label, tags.workflow: local_small}
+  - component: issue
+    count: 1
+    rows:
+      - {sample_id: clean-1, passage_id: cite_2}

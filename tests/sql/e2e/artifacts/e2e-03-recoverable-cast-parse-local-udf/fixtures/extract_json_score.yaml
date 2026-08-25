@@ -1,0 +1,13 @@
+kind: local_udf
+name: extract_json_score
+runtime_alias: extract_json_score
+implementation: extract_json_score
+signature:
+  parameters:
+    - {name: text, type_sql: STRING, has_default: false}
+return_type_sql: DOUBLE
+failure_rules:
+  - match: {invalid_json: true}
+    error: invalid JSON
+  - match: {missing_key: score}
+    error: missing score

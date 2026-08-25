@@ -1,0 +1,18 @@
+reports:
+  - component: metric
+    count: 6
+    rows:
+      - {metric.value: segment_avg_score, value.value: 0.9}
+      - {metric.value: case_score, value.value: 0.65}
+manifests:
+  - file: annotation_support_policy_review.json
+    contains:
+      table: annotation_candidates
+      queue_name: support policy review
+      alias: support_policy_review
+  - file: reports_metric_report_metrics.json
+    contains:
+      component: metric
+  - file: dataset_final_case_report.json
+    contains:
+      dataset_name: support-eval-final-cases

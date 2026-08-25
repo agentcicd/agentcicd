@@ -1,0 +1,33 @@
+tables:
+  metric_summary:
+    rows:
+      - match: {tags.value.workflow: global_large, tags.value.task: support}
+        cells:
+          metric: {value: judge_macro_f1, errors: []}
+          value:
+            approx: 0.5
+            errors: []
+          tags:
+            value: {workflow: global_large, task: support}
+            errors: []
+          metric_row:
+            value:
+              metric: judge_macro_f1
+              metric_value: 0.5
+              tags: {workflow: global_large, task: support}
+            errors: []
+      - match: {tags.value.workflow: local_small, tags.value.task: support}
+        cells:
+          metric: {value: judge_macro_f1, errors: []}
+          value:
+            approx: 1.0
+            errors: []
+          tags:
+            value: {workflow: local_small, task: support}
+            errors: []
+          metric_row:
+            value:
+              metric: judge_macro_f1
+              metric_value: 1.0
+              tags: {workflow: local_small, task: support}
+            errors: []

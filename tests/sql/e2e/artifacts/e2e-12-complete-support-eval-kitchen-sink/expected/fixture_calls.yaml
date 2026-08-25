@@ -1,0 +1,7 @@
+calls:
+  embed.text:
+    count: 4
+  support.simulate_turn:
+    count: 4
+  judge.policy_adherence:
+    count: 4

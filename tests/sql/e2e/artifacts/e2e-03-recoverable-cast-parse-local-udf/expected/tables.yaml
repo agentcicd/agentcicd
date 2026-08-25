@@ -1,0 +1,29 @@
+tables:
+  parsed:
+    rows:
+      - match: {row_id.value: 1}
+        cells:
+          payload: {value_type: json, errors: []}
+          score_from_udf: {approx: 0.91, errors: []}
+      - match: {row_id.value: 2}
+        cells:
+          score_cast: {errors: [AGENTCICD_CAST_ERROR]}
+      - match: {row_id.value: 3}
+        cells:
+          payload: {errors: [AGENTCICD_JSON_PARSE_ERROR]}
+      - match: {row_id.value: 4}
+        cells:
+          score_from_udf: {errors: [AGENTCICD_RUNTIME_PYTHON_ERROR]}
+  recovered:
+    rows:
+      - match: {row_id.value: 1}
+        cells:
+          score_udf_safe: {approx: 0.91, errors: []}
+      - match: {row_id.value: 2}
+        cells:
+          score_cast_safe: {value: -1.0, errors: []}
+          cast_failed: {value: true, errors: []}
+      - match: {row_id.value: 4}
+        cells:
+          score_udf_safe: {value: -2.0, errors: []}
+          udf_failed: {value: true, errors: []}

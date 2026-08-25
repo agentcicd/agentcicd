@@ -1,0 +1,14 @@
+reports:
+  - component: metric
+    count: 1
+    rows:
+      - {metric.value: annotation_candidates, value.value: 2.0}
+manifests:
+  - file: annotation_policy_review.json
+    contains:
+      table: annotation_candidates
+      queue_name: policy review
+      alias: policy_review
+  - file: dataset_final_report.json
+    contains:
+      dataset_name: policy-review-results

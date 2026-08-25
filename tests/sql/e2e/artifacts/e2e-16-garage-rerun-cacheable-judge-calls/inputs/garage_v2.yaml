@@ -1,0 +1,24 @@
+kind: raw_parquet
+rows:
+  - case_id: c1
+    sample_id: q1
+    question: How long is the warranty?
+    passage_id: p1
+    passage_text: Warranty lasts two years.
+    expected_label: relevant
+    judge_version: v1
+  - case_id: c2
+    sample_id: q1
+    question: How long is the warranty?
+    passage_id: p2
+    passage_text: Warranty coverage excludes paint colors.
+    expected_label: relevant
+    judge_version: v1
+  - case_id: c3
+    sample_id: q2
+    question: When should I change oil?
+    passage_id: p3
+    passage_text: Change oil every 5000 miles.
+    expected_label: relevant
+    judge_version: v1
+

@@ -1,0 +1,15 @@
+kind: raw_parquet
+rows:
+  - case_id: c1
+    sample_id: q1
+    passage_id: p1
+    passage_text: Warranty lasts two years.
+    expected_label: relevant
+    judge_version: v1
+  - case_id: c2
+    sample_id: q1
+    passage_id: p2
+    passage_text: Paint colors vary by trim.
+    expected_label: not_relevant
+    judge_version: v1
+

@@ -1,0 +1,20 @@
+id: e2e-01-support-rich-values
+name: Support rich values
+description: Support evaluation workflow with CSV/JSONL loads, local and runtime functions, variants, joins, reports, schemas, and manifests.
+markers: [spark, e2e]
+include_cells: true
+inputs:
+  cases_csv: inputs/cases.csv
+  policy_defaults_jsonl: inputs/policy_defaults.jsonl
+fixtures:
+  - fixtures/normalize_text.yaml
+  - fixtures/support.simulate_turn.yaml
+  - fixtures/judge.policy_adherence.yaml
+execution:
+  kind: recipe
+expected:
+  tables: expected/tables.yaml
+  schemas: expected/schemas.yaml
+  manifests: expected/manifests.yaml
+  fixture_calls: expected/fixture_calls.yaml
+  publishes: expected/publishes.yaml

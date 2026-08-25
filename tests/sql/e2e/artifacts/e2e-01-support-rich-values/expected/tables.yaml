@@ -1,0 +1,25 @@
+tables:
+  prepared:
+    rows:
+      - match: {case_id.value: case-001}
+        cells:
+          normalized_message:
+            value: where is order ord-1001?
+            errors: []
+          policy: {value_type: json, errors: []}
+  judged:
+    rows:
+      - match: {evaluation_case_id.value: case-001}
+        cells:
+          score: {approx: 0.9, errors: []}
+          passed: {value: true, errors: []}
+      - match: {evaluation_case_id.value: case-002}
+        cells:
+          score: {approx: 0.65, errors: []}
+          passed: {value: false, errors: []}
+  report_rows:
+    rows:
+      - match: {case_id.value: case-003}
+        cells:
+          metric: {value: policy_adherence, errors: []}
+          value: {approx: 0.9, errors: []}

@@ -1,0 +1,7 @@
+tables:
+  - citation_examples
+  - parsed_small_judgments
+  - evaluated_citations
+  - score_rows
+  - slice_score_rows
+  - issue_rows

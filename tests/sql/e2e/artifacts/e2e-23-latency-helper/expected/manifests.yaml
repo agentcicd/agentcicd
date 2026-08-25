@@ -1,0 +1,1 @@
+stages: [prepared, fixture_outputs, latency_checks, latency_summary]

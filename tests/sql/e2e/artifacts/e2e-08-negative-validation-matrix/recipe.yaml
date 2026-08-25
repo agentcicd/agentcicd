@@ -1,0 +1,10 @@
+id: e2e-08-negative-validation-matrix
+name: Negative validation matrix
+description: Unsupported wrapped-mode SQL constructs must fail during compile_plan before Spark execution.
+markers: [spark, e2e]
+include_cells: true
+fixtures: []
+execution:
+  kind: negative_validation
+expected:
+  validation: expected/validation.yaml

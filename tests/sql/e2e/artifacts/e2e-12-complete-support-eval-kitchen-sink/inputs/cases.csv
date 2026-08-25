@@ -1,0 +1,6 @@
+case_id,customer_id,customer_message,priority,policy_id,created_day
+case-001,cust-001,"Where is order ORD-1001?",1,policy-shipping,2026-05-01
+case-002,cust-002,"I want a refund",2,policy-refund,2026-05-01
+case-003,cust-003,"  PLEASE cancel my order  ",3,policy-cancel,2026-05-02
+case-004,cust-004,"EMBED_FAIL but should continue",4,policy-shipping,2026-05-02
+case-005,cust-005,"NORMALIZE_FAIL",5,policy-refund,2026-05-03

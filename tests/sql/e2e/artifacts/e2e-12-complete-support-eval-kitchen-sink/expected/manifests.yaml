@@ -1,0 +1,12 @@
+stages:
+  - prepared_cases
+  - active_policies
+  - case_policy_joined
+  - simulated
+  - judged
+  - ranked_cases
+  - segment_summary
+  - annotation_candidates
+  - reviewed
+  - final_case_report
+  - report_metrics

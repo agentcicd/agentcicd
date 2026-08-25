@@ -1,0 +1,55 @@
+tables:
+  prepared_cases:
+    rows:
+      - match: {case_id.value: case-001}
+        cells:
+          message_norm: {value: "where is order ord-1001?", errors: []}
+          priority_bucket: {value: low, errors: []}
+      - match: {case_id.value: case-005}
+        cells:
+          message_norm: {errors: [AGENTCICD_RUNTIME_PYTHON_ERROR]}
+  case_policy_joined:
+    rows:
+      - match: {case_id.value: case-004}
+        cells:
+          segment: {value: shipping, errors: []}
+          routing_weight: {value: 7, errors: []}
+  judged:
+    rows:
+      - match: {case_id.value: case-002}
+        cells:
+          score: {approx: 0.65, errors: []}
+          threshold_pass: {value: false, errors: []}
+      - match: {case_id.value: case-004}
+        cells:
+          embedding: {errors_contains: [AGENTCICD_RUNTIME_HTTP_ERROR]}
+  ranked_cases:
+    rows:
+      - match: {case_id.value: case-002}
+        cells:
+          outcome: {value: needs-review, errors: []}
+      - match: {case_id.value: case-001}
+        cells:
+          segment_rank: {value: 2, errors: []}
+  segment_summary:
+    rows:
+      - match: {segment.value: shipping}
+        cells:
+          case_count: {value: 2, errors: []}
+          avg_score: {approx: 0.9, errors: []}
+  annotation_candidates:
+    rows:
+      - match: {case_id.value: case-002}
+        cells:
+          outcome: {value: needs-review, errors: []}
+  final_case_report:
+    rows:
+      - match: {case_id.value: case-002}
+        cells:
+          review_label: {value: manual-review, errors: []}
+          review_status: {value: manual-review, errors: []}
+  report_metrics:
+    rows:
+      - match: {metric.value: case_score, dimension.value: case-002}
+        cells:
+          value: {approx: 0.65, errors: []}
