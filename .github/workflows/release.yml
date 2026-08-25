@@ -78,7 +78,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "${{ github.ref_name }}" dist/* --generate-notes --title "AgentCICD ${{ github.ref_name }}"
+        run: gh release create "${{ github.ref_name }}" dist/* --title "AgentCICD ${{ github.ref_name }}"
 
   pypi-publish:
     name: Publish to PyPI
