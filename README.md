@@ -13,8 +13,6 @@ The engine is designed for repeatable agent evaluation workflows: prepare cases,
 - Typed YAML inputs and local secret references, with scalar `.properties` compatibility.
 - Local run artifacts, reports, traces, tables, and an inspection UI.
 
-For the broader AgentCICD workflow, SQL language concepts, fixtures, run review, annotations, and release checks, see the [AgentCICD documentation](https://app.agentcicd.com/docs).
-
 ## Install
 
 Install the engine with the Spark execution backend:
