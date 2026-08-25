@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class Err(BaseModel):
-    name: str    
+    name: str
     message: str
     stacktrace: Optional[List[str]] = None
 
@@ -33,7 +33,7 @@ NullableScalar = Union[Scalar, None]
 Json = Union[
     Dict[str, "Json"],  # JSON object
     List["Json"],       # JSON array
-    NullableScalar,     # JSON scalar    
+    NullableScalar,     # JSON scalar
 ]
 
 Record = Dict[str, Json]  # A record is a dictionary with string keys and JSON values
@@ -52,7 +52,7 @@ class DTypeSingleton(type):
             cls._instances[cls] = super(  # type: ignore[misc, attr-defined]
                 DTypeSingleton, cls  # type: ignore
             ).__call__(*args, **kwargs)
-        return cls._instances[cls]  # type: ignore[attr-defined]    
+        return cls._instances[cls]  # type: ignore[attr-defined]
 
 
 def _get_spark_types() -> Dict[str, type["SparkDataType"]]:

@@ -12,7 +12,7 @@ from .runtime_control import runtime_limiter
 
 class Function(abc.ABC):
     """Base class for all function types with lifecycle management."""
-    
+
     def setup(self) -> None:
         """Setup method called before execute."""
         pass
@@ -32,7 +32,7 @@ class Function(abc.ABC):
             self.setup()
             return self.execute(*args)
         finally:
-            self.teardown()        
+            self.teardown()
 
 
 class BatchFunction(Function):
@@ -42,7 +42,7 @@ class BatchFunction(Function):
         """Execute batch transformation on PyArrow Arrays."""
         pa = _require_pyarrow()
         py_args = [a.to_pylist() for a in args]
-        transformed = self._transform(*py_args)        
+        transformed = self._transform(*py_args)
         yield pa.array(transformed)
 
     def _transform(self, *args: List[Json]) -> List[Json]:
@@ -215,7 +215,7 @@ class AggregateFunction(Function):
         """Execute aggregation on pandas Series."""
         py_args = [list(a) for a in args]
         return self._aggregate(*py_args)
-    
+
     def _aggregate(self, *args: List[Json]) -> Json:
         try:
             return self.aggregate(*args)

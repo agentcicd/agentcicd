@@ -13,7 +13,7 @@ def build_aiohttp_timeout(config: Optional[TimeoutConfig]) -> Optional[ClientTim
     return ClientTimeout(
         total=config.timeout,
         connect=config.connect,
-        sock_read=config.read,        
+        sock_read=config.read,
     )
 
 

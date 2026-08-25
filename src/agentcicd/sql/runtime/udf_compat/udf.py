@@ -25,7 +25,7 @@ class Udf:
     def __init_subclass__(cls, name: Optional[str] = None, **kwargs):
         super().__init_subclass__(**kwargs)
         cls._udf_name = name
-    
+
 
     @abc.abstractmethod
     def input_schema(self) -> Tuple[DType, ...]:
