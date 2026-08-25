@@ -1,8 +1,8 @@
 # AgentCICD
 
-AgentCICD is an open-source engine for evaluating agent behavior before release. Define an evaluation as a folder containing declarative SQL, optional Python fixtures, inputs, and secret references. Run it locally, inspect the materialized stages and report artifacts, and keep the evaluation alongside the agent it protects.
+AgentCICD is an open-source engine for evaluation and regression testing before release. Define an evaluation as a folder containing declarative SQL, optional Python fixtures, inputs, and secret references. Run it locally, inspect the materialized stages and report artifacts, and keep the evaluation alongside the system it protects.
 
-The engine is designed for repeatable agent evaluation workflows: prepare cases, invoke agents or fixtures, score results, publish metrics or issues, and inspect the evidence behind a release decision.
+The engine is designed for repeatable evaluation workflows: prepare cases, invoke systems or fixtures, score results, publish metrics or issues, and inspect the evidence behind a release decision.
 
 ## What It Provides
 
@@ -126,7 +126,7 @@ Supply them locally:
 
 ```yaml
 # inputs.yaml
-target_url: https://agent.example.test
+target_url: https://target.example.test
 provider_key: secret.OPENAI_API_KEY
 threshold: 0.85
 ```
@@ -172,7 +172,6 @@ This rebuilds the static assets packaged with the Python distribution.
 
 ## Documentation
 
-- [Product documentation](https://app.agentcicd.com/docs)
 - [SQL engine architecture](docs/architecture.md)
 - [Wrapped SQL semantics](docs/contributing/wrapped-sql-semantics.md)
 

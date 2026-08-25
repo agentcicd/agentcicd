@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentcicd"
-version = "0.1.0"
-description = "Open source AgentCICD Engine folder runner"
+version = "0.1.1"
+description = "Evaluation and regression testing."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
