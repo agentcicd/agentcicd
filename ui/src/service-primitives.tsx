@@ -8,7 +8,7 @@ export function cn(...values: ClassValue[]): string {
 }
 
 export function ServiceCard({ className, ...props }: ComponentProps<"section">) {
-  return <section className={cn("rounded-lg border border-slate-200 bg-white", className)} {...props} />;
+  return <section className={cn("min-w-0 rounded-lg border border-slate-200 bg-white", className)} {...props} />;
 }
 
 export function ServiceBadge({ children, className }: { children: ReactNode; className?: string }) {

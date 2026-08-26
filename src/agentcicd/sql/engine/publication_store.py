@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -10,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from agentcicd.sql.engine.interfaces import BackendLayout, PublicationStore
+from agentcicd.sql.integration import validate_label_studio_template_xml
 
 
 @dataclass(frozen=True)
@@ -264,6 +266,42 @@ def _annotation_rows_from_table(layout: BackendLayout, name: str) -> list[dict[s
     return [_json_safe_report_value(row) for row in rows]
 
 
+def _option(options: Mapping[str, object] | None, name: str, default: Any = None) -> Any:
+    normalized_name = name.strip().lower()
+    for key, value in dict(options or {}).items():
+        if str(key).strip().lower() == normalized_name:
+            return value
+    return default
+
+
+def _annotation_policy(options: Mapping[str, object] | None) -> dict[str, Any]:
+    reviewers_per_task = int(_option(options, "reviewers_per_task", 1) or 1)
+    reservation_minutes = int(_option(options, "reservation_minutes", 30) or 30)
+    consensus = str(_option(options, "consensus", "none") or "none").strip().lower()
+    if reviewers_per_task < 1 or reviewers_per_task > 10:
+        raise ValueError("REVIEWERS_PER_TASK must be between 1 and 10")
+    if reservation_minutes < 5 or reservation_minutes > 1440:
+        raise ValueError("RESERVATION_MINUTES must be between 5 and 1440")
+    if consensus not in {"none", "majority", "unanimous"}:
+        raise ValueError("CONSENSUS must be one of: none, majority, unanimous")
+    return {
+        "reviewers_per_task": reviewers_per_task,
+        "reservation_minutes": reservation_minutes,
+        "consensus": consensus,
+    }
+
+
+def _generated_annotation_request_id() -> str:
+    return f"annreq.{secrets.token_hex(8)}"
+
+
+def _safe_annotation_ref(value: str) -> str:
+    normalized = str(value or "").strip().replace("/", "_")
+    if not normalized:
+        raise ValueError("Annotation reference must not be empty")
+    return normalized
+
+
 def _report_file_for_component(layout: BackendLayout, component: str) -> Path:
     reports_dir = Path(layout.working_dir) / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -441,6 +479,60 @@ class LocalManifestPublicationStore(PublicationStore):
         alias: str | None = None,
         options: Mapping[str, object] | None = None,
     ) -> None:
+        options_payload = dict(options or {})
+        template = str(_option(options_payload, "template", "") or "").strip()
+        if not template:
+            raise ValueError("TEMPLATE is required for local annotation publication")
+        validate_label_studio_template_xml(template, context="TEMPLATE")
+        policy = _annotation_policy(options_payload)
+        request_id = _generated_annotation_request_id()
+        source_ref = alias or name
+        request_root = Path(layout.annotation_tasks_root) / request_id
+        request_root.mkdir(parents=True, exist_ok=False)
+        rows = _annotation_rows_from_table(layout, name)
+        task_lines = []
+        for index, row in enumerate(rows):
+            task_lines.append(
+                json.dumps(
+                    {
+                        "task_id": f"task_{index:06d}",
+                        "data": _json_safe_report_value(_unwrap_cells(row)),
+                    },
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+            )
+        data_path = request_root / "tasks.jsonl"
+        reviews_path = request_root / "reviews"
+        results_path = request_root / "results.jsonl"
+        manifest_path = request_root / "manifest.json"
+        reviews_path.mkdir(parents=True, exist_ok=True)
+        data_path.write_text("\n".join(task_lines) + ("\n" if task_lines else ""), encoding="utf-8")
+        manifest = {
+            "queue_name": queue_name,
+            "source_table": name,
+            "publish_alias": alias,
+            "instructions": _option(options_payload, "instructions", None),
+            "template": template,
+            "review_policy": policy,
+            "request_id": request_id,
+            "data_path": data_path.as_posix(),
+            "reviews_path": reviews_path.as_posix(),
+            "results_path": results_path.as_posix(),
+            "manifest_path": manifest_path.as_posix(),
+            "status": "pending",
+            "total_tasks": len(task_lines),
+            "completed_tasks": 0,
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        alias_root = Path(layout.annotation_tasks_root) / _safe_annotation_ref(source_ref)
+        alias_root.mkdir(parents=True, exist_ok=True)
+        (alias_root / "request.json").write_text(
+            json.dumps({"request_id": request_id, "alias": alias, "table": name}, indent=2),
+            encoding="utf-8",
+        )
+
         self._write_manifest(
             layout,
             "annotation",
@@ -450,12 +542,17 @@ class LocalManifestPublicationStore(PublicationStore):
                 "queue_name": queue_name,
                 "alias": alias,
                 "options": dict(options or {}),
+                "request_id": request_id,
+                "tasks_path": data_path.as_posix(),
+                "manifest_path": manifest_path.as_posix(),
             },
         )
 
     @staticmethod
     def _write_manifest(layout: BackendLayout, kind: str, name: str, payload: dict) -> None:
-        manifest_path = Path(layout.publish_root) / f"{kind}_{name}.json"
+        publish_root = Path(layout.publish_root)
+        publish_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = publish_root / f"{kind}_{name}.json"
         manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 

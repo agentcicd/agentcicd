@@ -11,6 +11,7 @@ import pytest
 from agentcicd.config import BackendName
 from agentcicd.errors import BackendNotSupportedError, InputCoercionError, ProjectLoadError
 from agentcicd.project import load_project
+from agentcicd.runtime import local_runner
 from agentcicd.runtime.local_runner import _configure_local_spark_python, prepare_run, run_project, validate_project
 
 
@@ -192,6 +193,17 @@ def test_configure_local_spark_python_preserves_explicit_interpreter(monkeypatch
     _configure_local_spark_python()
 
     assert os.environ["PYSPARK_PYTHON"] == "/opt/custom/python"
+
+
+def test_restore_sigint_handler_restores_the_cli_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    restored: list[object] = []
+    handler = local_runner.signal.default_int_handler
+
+    monkeypatch.setattr(local_runner.signal, "signal", lambda _signal_number, received_handler: restored.append(received_handler))
+
+    local_runner._restore_sigint_handler(handler)
+
+    assert restored == [handler]
 
 
 def test_run_project_rejects_duckdb_backend_in_v1(tmp_path: Path) -> None:

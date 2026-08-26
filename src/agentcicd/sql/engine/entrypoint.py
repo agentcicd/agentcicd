@@ -154,6 +154,8 @@ class EngineEntrypoint:
         include_cells: bool = False,
         progress_callback: Callable[[ProgressCallbackEvent], None] | None = None,
         max_parallel_stages: int = 1,
+        wait_for_annotations: bool = False,
+        annotation_poll_seconds: float = 1.0,
     ) -> ExecutionReport:
         if max_parallel_stages > 1:
             return execute_plan_dag(
@@ -161,11 +163,15 @@ class EngineEntrypoint:
                 backend,
                 progress_callback=progress_callback,
                 max_parallel_stages=max_parallel_stages,
+                wait_for_annotations=wait_for_annotations,
+                annotation_poll_seconds=annotation_poll_seconds,
             )
         return execute_plan(
             self.compile_plan(include_cells=include_cells),
             backend,
             progress_callback=progress_callback,
+            wait_for_annotations=wait_for_annotations,
+            annotation_poll_seconds=annotation_poll_seconds,
         )
 
 

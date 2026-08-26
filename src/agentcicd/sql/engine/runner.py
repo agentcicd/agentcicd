@@ -43,6 +43,8 @@ class EngineRunConfig:
     checkpoints_root: Optional[str] = None
     input_values: Mapping[str, str] | None = None
     max_parallel_stages: int | None = None
+    wait_for_annotations: bool = False
+    annotation_poll_seconds: float = 1.0
     debug: bool | Mapping[str, object] | None = None
     registered_functions: Iterable[RegisteredRuntimeFunction | RegisteredFunctionSpec | Mapping[str, object]] | None = None
 
@@ -92,6 +94,8 @@ def run_script_with_new_engine(
             include_cells=config.include_cells,
             progress_callback=reporter.emit_event,
             max_parallel_stages=max_parallel_stages,
+            wait_for_annotations=config.wait_for_annotations,
+            annotation_poll_seconds=config.annotation_poll_seconds,
         )
         _write_execution_report(config.working_dir, report)
         return report

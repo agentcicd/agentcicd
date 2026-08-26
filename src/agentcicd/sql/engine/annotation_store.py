@@ -32,6 +32,7 @@ class AnnotationResultsPending(RuntimeError):
 
 class LocalAnnotationStore(AnnotationStore):
     def load_annotation_dataframe(self, spark_session, layout: BackendLayout, annotation_id: str):
+        annotation_id = self._resolve_annotation_id(layout, annotation_id)
         annotation_root = Path(layout.annotation_tasks_root) / annotation_id
         if not annotation_root.exists():
             raise FileNotFoundError(f"Annotation task directory not found: {annotation_root}")
@@ -42,10 +43,22 @@ class LocalAnnotationStore(AnnotationStore):
         ]
         candidate = next((path for path in candidate_paths if path.exists()), None)
         if candidate is None:
-            raise FileNotFoundError(f"No supported annotation result file found in {annotation_root}")
+            raise AnnotationResultsPending(annotation_id)
         if candidate.suffix == ".parquet":
             return spark_session.read.format("parquet").load(str(candidate))
         return spark_session.read.json(str(candidate))
+
+    @staticmethod
+    def _resolve_annotation_id(layout: BackendLayout, annotation_id: str) -> str:
+        alias_path = Path(layout.annotation_tasks_root) / annotation_id / "request.json"
+        if not alias_path.exists():
+            return annotation_id
+        try:
+            payload = json.loads(alias_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return annotation_id
+        request_id = payload.get("request_id") if isinstance(payload, dict) else None
+        return request_id if isinstance(request_id, str) and request_id else annotation_id
 
 
 class HttpAnnotationStore(AnnotationStore):

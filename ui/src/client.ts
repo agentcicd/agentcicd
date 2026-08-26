@@ -1,4 +1,4 @@
-import { inspectionSchemaVersion, type InspectionClient, type JsonValue, type ProgressContent, type ProjectInspection, type ReportContent, type RunInspection, type RunTableRows, type InspectionResource, type RunReference } from "./types";
+import { inspectionSchemaVersion, type AnnotationProgress, type AnnotationRequestRead, type AnnotationReviewRead, type AnnotationTaskRead, type InspectionClient, type JsonValue, type PoolLeaseRead, type PoolNodeRead, type ProgressContent, type ProjectInspection, type RateLimitLeaseRead, type ReportContent, type RunGraphContent, type RunInspection, type RunLogsContent, type RunTableRows, type InspectionResource, type RunReference } from "./types";
 
 type JsonObject = Record<string, JsonValue>;
 
@@ -26,6 +26,8 @@ export class HttpInspectionClient implements InspectionClient {
   public runs(projectId: string) { return this.get<{ items: RunReference[] }>(`/projects/${encodeURIComponent(projectId)}/runs`); }
   public run(runId: string) { return this.get<RunInspection>(`/runs/${encodeURIComponent(runId)}`); }
   public progress(runId: string) { return this.get<ProgressContent>(`/runs/${encodeURIComponent(runId)}/progress`); }
+  public logs(runId: string) { return this.get<RunLogsContent>(`/runs/${encodeURIComponent(runId)}/logs`); }
+  public graph(runId: string) { return this.get<RunGraphContent>(`/runs/${encodeURIComponent(runId)}/graph`); }
   public report(runId: string) { return this.get<ReportContent>(`/runs/${encodeURIComponent(runId)}/report`); }
   public tables(runId: string) { return this.get<{ items: Array<Record<string, JsonValue>> }>(`/runs/${encodeURIComponent(runId)}/tables`); }
   public tableRows(runId: string, tableName: string, page: number, pageSize: number) {
@@ -33,13 +35,41 @@ export class HttpInspectionClient implements InspectionClient {
   }
   public traces(runId: string) { return this.get<{ items: Array<{ id: string; status: string }> }>(`/runs/${encodeURIComponent(runId)}/traces`); }
   public traceSpans(runId: string, traceId: string, page: number, pageSize: number) { return this.get<{ records: Array<Record<string, JsonValue>> }>(`/runs/${encodeURIComponent(runId)}/traces/${encodeURIComponent(traceId)}/spans?page=${page}&page_size=${pageSize}`); }
+  public annotationRequests(runId: string) { return this.get<{ items: AnnotationRequestRead[]; total: number }>(`/runs/${encodeURIComponent(runId)}/annotations/requests`); }
+  public annotationRequest(runId: string, requestId: string) { return this.get<{ request: AnnotationRequestRead; progress: AnnotationProgress }>(`/runs/${encodeURIComponent(runId)}/annotations/requests/${encodeURIComponent(requestId)}`); }
+  public annotationTasks(runId: string, requestId: string) { return this.get<{ request_id: string; tasks: AnnotationTaskRead[]; total: number; completed: number }>(`/runs/${encodeURIComponent(runId)}/annotations/requests/${encodeURIComponent(requestId)}/tasks`); }
+  public annotationTask(runId: string, requestId: string, taskId: string) { return this.get<{ request_id: string; task: AnnotationTaskRead }>(`/runs/${encodeURIComponent(runId)}/annotations/requests/${encodeURIComponent(requestId)}/tasks/${encodeURIComponent(taskId)}`); }
+  public submitAnnotationReview(runId: string, requestId: string, taskId: string, payload: { reviewer_id: string; result: Record<string, JsonValue> }) {
+    return this.post<{ review: AnnotationReviewRead; progress: AnnotationProgress }>(`/runs/${encodeURIComponent(runId)}/annotations/requests/${encodeURIComponent(requestId)}/tasks/${encodeURIComponent(taskId)}/reviews`, payload);
+  }
+  public finalizeAnnotationRequest(runId: string, requestId: string) {
+    return this.post<{ request_id: string; total_tasks: number; completed_tasks: number; results_path: string }>(`/runs/${encodeURIComponent(runId)}/annotations/requests/${encodeURIComponent(requestId)}/finalize`, {});
+  }
+  public runtimePools(runId: string) { return this.get<{ run_id: string; nodes: PoolNodeRead[]; leases: PoolLeaseRead[] }>(`/runs/${encodeURIComponent(runId)}/runtime/pools`); }
+  public runtimeRateLimits(runId: string) { return this.get<{ run_id: string; leases: RateLimitLeaseRead[] }>(`/runs/${encodeURIComponent(runId)}/runtime/rate-limits`); }
 
   private async get<T>(path: string): Promise<T> {
+    return this.request<T>("GET", path);
+  }
+
+  private async post<T>(path: string, payload: JsonValue): Promise<T> {
+    return this.request<T>("POST", path, payload);
+  }
+
+  private async request<T>(method: "GET" | "POST", path: string, payload?: JsonValue): Promise<T> {
     const base = new URL(this.baseUrl, window.location.origin);
     const request = new URL(path, window.location.origin);
     base.pathname = `${base.pathname.replace(/\/$/, "")}${request.pathname}`;
     request.searchParams.forEach((value, key) => base.searchParams.set(key, value));
-    const response = await fetch(`${base.pathname}${base.search}`, { credentials: "same-origin", ...this.requestInit });
+    const headers = new Headers(this.requestInit?.headers);
+    if (method === "POST") headers.set("Content-Type", "application/json");
+    const response = await fetch(`${base.pathname}${base.search}`, {
+      credentials: "same-origin",
+      ...this.requestInit,
+      method,
+      headers,
+      body: method === "POST" ? JSON.stringify(payload ?? {}) : undefined,
+    });
     if (!response.ok) throw new Error(`Inspection request failed (${response.status}).`);
     return validateInspectionEnvelope(await response.json() as JsonValue) as T;
   }

@@ -352,6 +352,57 @@ def test_new_engine_publish_reports_reads_heterogeneous_parquet_parts(tmp_path: 
     assert "ask_for_item_condition_if_not_clear" in payload[1]["required_policy_steps"]
 
 
+def test_local_publish_annotation_writes_service_shaped_request_artifacts(tmp_path: Path):
+    pyarrow = pytest.importorskip("pyarrow")
+    import pyarrow.parquet as pq
+
+    from agentcicd.sql.engine.interfaces import BackendLayout
+    from agentcicd.sql.engine.publication_store import LocalManifestPublicationStore
+
+    table_dir = tmp_path / "tables" / "judged"
+    table_dir.mkdir(parents=True)
+    pq.write_table(pyarrow.table({"case_id": ["case-1"], "answer": ["hello"]}), table_dir / "part-00000.parquet")
+
+    layout = BackendLayout(
+        working_dir=str(tmp_path),
+        tables_root=str(tmp_path / "tables"),
+        sources_root=str(tmp_path / "sources"),
+        outputs_root=str(tmp_path / "outputs"),
+        publish_root=str(tmp_path / "publish"),
+        checkpoints_root=str(tmp_path / "checkpoints"),
+        stream_batches_root=str(tmp_path / "stream_batches"),
+        http_cache_root=str(tmp_path / "http_cache"),
+        annotation_tasks_root=str(tmp_path / "annotation_tasks"),
+    )
+
+    LocalManifestPublicationStore().publish_annotation(
+        layout,
+        "judged",
+        "policy_review",
+        alias="annotation_review",
+        options={
+            "TEMPLATE": "<View><Text name='answer' value='$answer'/></View>",
+            "REVIEWERS_PER_TASK": 1,
+            "RESERVATION_MINUTES": 30,
+            "CONSENSUS": "none",
+        },
+    )
+
+    publish_manifest = json.loads((tmp_path / "publish" / "annotation_annotation_review.json").read_text(encoding="utf-8"))
+    request_id = publish_manifest["request_id"]
+    request_root = tmp_path / "annotation_tasks" / request_id
+    task = json.loads((request_root / "tasks.jsonl").read_text(encoding="utf-8").strip())
+    manifest = json.loads((request_root / "manifest.json").read_text(encoding="utf-8"))
+    alias_payload = json.loads((tmp_path / "annotation_tasks" / "annotation_review" / "request.json").read_text(encoding="utf-8"))
+
+    assert request_id.startswith("annreq.")
+    assert task == {"task_id": "task_000000", "data": {"case_id": "case-1", "answer": "hello"}}
+    assert manifest["queue_name"] == "policy_review"
+    assert manifest["template"] == "<View><Text name='answer' value='$answer'/></View>"
+    assert manifest["review_policy"] == {"reviewers_per_task": 1, "reservation_minutes": 30, "consensus": "none"}
+    assert alias_payload == {"request_id": request_id, "alias": "annotation_review", "table": "judged"}
+
+
 def test_new_engine_publish_reports_appends_multiple_publish_steps(local_spark, tmp_path: Path):
     script = """
     CREATE BATCH TABLE summary_a

@@ -172,8 +172,11 @@ This rebuilds the static assets packaged with the Python distribution.
 
 ## Documentation
 
-- [SQL engine architecture](docs/architecture.md)
-- [Wrapped SQL semantics](docs/contributing/wrapped-sql-semantics.md)
+- [Documentation index](docs/index.md)
+- [Getting started](docs/getting-started.md)
+- [Project layout](docs/project-layout.md)
+- [AgentCICD SQL](docs/recipe-sql.md)
+- [Architecture overview](docs/architecture/overview.md)
 
 ## License
 

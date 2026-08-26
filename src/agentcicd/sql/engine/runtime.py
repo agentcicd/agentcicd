@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import time
 from typing import Any, Callable, Mapping, Optional, Protocol
 
 from agentcicd.sql.engine.annotation_store import AnnotationResultsPending
@@ -115,6 +116,8 @@ def execute_plan(
     progress_callback: Optional[Callable[[ProgressCallbackEvent], None]] = None,
     *,
     raise_on_error: bool = True,
+    wait_for_annotations: bool = False,
+    annotation_poll_seconds: float = 1.0,
 ) -> ExecutionReport:
     report = ExecutionReport()
     context_hook = getattr(backend, "set_execution_plan_context", None)
@@ -150,7 +153,13 @@ def execute_plan(
             )
         )
         try:
-            _execute_step(step, backend)
+            _execute_step_waiting_for_annotation(
+                step,
+                backend,
+                progress_callback=progress_callback,
+                wait_for_annotations=wait_for_annotations,
+                annotation_poll_seconds=annotation_poll_seconds,
+            )
         except AnnotationResultsPending as exc:
             if step.kind != "retrieve_annotation":
                 raise
@@ -233,6 +242,8 @@ def execute_plan_dag(
     *,
     max_parallel_stages: int = 1,
     raise_on_error: bool = True,
+    wait_for_annotations: bool = False,
+    annotation_poll_seconds: float = 1.0,
 ) -> ExecutionReport:
     """Execute a dependency DAG with bounded parallel materialization.
 
@@ -244,7 +255,14 @@ def execute_plan_dag(
     """
 
     if max_parallel_stages <= 1:
-        return execute_plan(plan, backend, progress_callback=progress_callback, raise_on_error=raise_on_error)
+        return execute_plan(
+            plan,
+            backend,
+            progress_callback=progress_callback,
+            raise_on_error=raise_on_error,
+            wait_for_annotations=wait_for_annotations,
+            annotation_poll_seconds=annotation_poll_seconds,
+        )
 
     report = ExecutionReport()
     context_hook = getattr(backend, "set_execution_plan_context", None)
@@ -256,7 +274,14 @@ def execute_plan_dag(
     remaining_steps: list[ExecutionPlanStep] = []
     for step in plan:
         if step.kind in setup_kinds:
-            _execute_step_with_events(step, backend, report, progress_callback)
+            _execute_step_with_events(
+                step,
+                backend,
+                report,
+                progress_callback,
+                wait_for_annotations=wait_for_annotations,
+                annotation_poll_seconds=annotation_poll_seconds,
+            )
             setup_nodes.add(_step_node_name(step))
         else:
             remaining_steps.append(step)
@@ -300,7 +325,15 @@ def execute_plan_dag(
                 node = runnable.pop(0)
                 pending.remove(node)
                 step = node_to_step[node]
-                future = executor.submit(_execute_step_with_events, step, backend, report, progress_callback)
+                future = executor.submit(
+                    _execute_step_with_events,
+                    step,
+                    backend,
+                    report,
+                    progress_callback,
+                    wait_for_annotations=wait_for_annotations,
+                    annotation_poll_seconds=annotation_poll_seconds,
+                )
                 running[future] = node
 
             if not running:
@@ -356,6 +389,9 @@ def _execute_step_with_events(
     backend: ExecutionBackend,
     report: ExecutionReport,
     progress_callback: Optional[Callable[[ProgressCallbackEvent], None]],
+    *,
+    wait_for_annotations: bool = False,
+    annotation_poll_seconds: float = 1.0,
 ) -> None:
     step_payload = payload_to_dict(step.payload)
     if _should_skip_step(backend, step):
@@ -382,7 +418,13 @@ def _execute_step_with_events(
         )
     report.events.append(ExecutionEvent(step_kind=step.kind, step_name=step.name, status="started", payload={"dependencies": list(step.dependencies)}))
     try:
-        _execute_step(step, backend)
+        _execute_step_waiting_for_annotation(
+            step,
+            backend,
+            progress_callback=progress_callback,
+            wait_for_annotations=wait_for_annotations,
+            annotation_poll_seconds=annotation_poll_seconds,
+        )
     except Exception as exc:
         if progress_callback is not None:
             progress_callback(ProgressCallbackEvent(step_type=step.kind, step_name=step.name, status="failed", error=str(exc)))
@@ -402,6 +444,42 @@ def _execute_step_with_events(
             )
         )
     report.events.append(ExecutionEvent(step_kind=step.kind, step_name=step.name, status="completed", payload=completion_metadata))
+
+
+def _execute_step_waiting_for_annotation(
+    step: ExecutionPlanStep,
+    backend: ExecutionBackend,
+    *,
+    progress_callback: Optional[Callable[[ProgressCallbackEvent], None]],
+    wait_for_annotations: bool,
+    annotation_poll_seconds: float,
+) -> None:
+    if not wait_for_annotations or step.kind != "retrieve_annotation":
+        _execute_step(step, backend)
+        return
+    step_payload = payload_to_dict(step.payload)
+    emitted_waiting = False
+    while True:
+        try:
+            _execute_step(step, backend)
+            return
+        except AnnotationResultsPending as exc:
+            if not emitted_waiting and progress_callback is not None:
+                progress_callback(
+                    ProgressCallbackEvent(
+                        step_type=step.kind,
+                        step_name=step.name,
+                        status="waiting",
+                        metadata={
+                            "action": "wait_for_annotation",
+                            "annotation_request_id": exc.annotation_id,
+                            "source_ref": str(step_payload.get("source_ref") or exc.annotation_id),
+                            "target_table": step.name,
+                        },
+                    )
+                )
+            emitted_waiting = True
+            time.sleep(max(0.1, float(annotation_poll_seconds or 1.0)))
 
 
 def _should_skip_step(backend: ExecutionBackend, step: ExecutionPlanStep) -> bool:

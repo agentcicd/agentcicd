@@ -1,7 +1,7 @@
-import { BookOpen, Boxes, FileKey2, KeyRound, Menu, Play, Settings2, X } from "lucide-react";
+import { BookOpen, Boxes, ClipboardCheck, KeyRound, Menu, Play, SlidersHorizontal, X } from "lucide-react";
 import { useState, type ComponentType, type ReactNode } from "react";
 
-export type InspectionSection = "overview" | "recipes" | "fixtures" | "inputs" | "secrets" | "runs";
+export type InspectionSection = "run" | "recipe" | "inputs" | "fixtures" | "annotations" | "secrets" | "overview" | "recipes" | "runs";
 
 type InspectionShellProps = {
   projectName: string;
@@ -10,13 +10,13 @@ type InspectionShellProps = {
   children: ReactNode;
 };
 
-const navigation: Array<{ id: InspectionSection; label: string; icon: typeof Settings2 }> = [
-  { id: "overview", label: "Overview", icon: Settings2 },
-  { id: "recipes", label: "Recipes", icon: BookOpen },
+const navigation: Array<{ id: InspectionSection; label: string; icon: typeof Play }> = [
+  { id: "run", label: "Home", icon: Play },
+  { id: "recipe", label: "Recipe", icon: BookOpen },
+  { id: "inputs", label: "Inputs", icon: SlidersHorizontal },
   { id: "fixtures", label: "Fixtures", icon: Boxes },
-  { id: "inputs", label: "Inputs", icon: FileKey2 },
+  { id: "annotations", label: "Annotations", icon: ClipboardCheck },
   { id: "secrets", label: "Secrets", icon: KeyRound },
-  { id: "runs", label: "Runs", icon: Play },
 ];
 
 export function ServiceSidebarNavigationItem({ label, icon: Icon, active, onClick }: { label: string; icon: ComponentType<{ className?: string }>; active: boolean; onClick: () => void }) {
@@ -29,8 +29,8 @@ export function InspectionShell({ projectName, activeSection, onNavigate, childr
   const [mobileOpen, setMobileOpen] = useState(false);
   const sideNav = <nav className="flex-1 space-y-1 p-4">{navigation.map((item) => <ServiceSidebarNavigationItem key={item.id} label={item.label} icon={item.icon} active={item.id === activeSection} onClick={() => { onNavigate(item.id); setMobileOpen(false); }} />)}</nav>;
   return <div className="flex min-h-screen bg-slate-50 text-slate-900">
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-gray-200 bg-white shadow-sm lg:flex"><div className="border-b border-gray-200 bg-slate-50 p-6"><h1 className="text-lg font-normal">Agent<span className="font-light text-emerald-700">CICD</span></h1><p className="mt-2 truncate text-xs text-slate-500">{projectName}</p></div>{sideNav}</aside>
-    {mobileOpen ? <div className="fixed inset-0 z-20 bg-slate-950/30 lg:hidden" onClick={() => setMobileOpen(false)}><aside className="h-full w-64 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-gray-200 bg-slate-50 p-5"><div><h1 className="text-lg">Agent<span className="font-light text-emerald-700">CICD</span></h1><p className="mt-1 max-w-44 truncate text-xs text-slate-500">{projectName}</p></div><button className="rounded-md p-2 hover:bg-slate-200" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X className="h-4 w-4" /></button></div>{sideNav}</aside></div> : null}
+    <aside className="hidden w-64 shrink-0 flex-col border-r border-gray-200 bg-white shadow-sm lg:flex"><div className="border-b border-gray-200 bg-slate-50 p-6"><h1 className="text-lg font-normal">agent<span className="font-light text-emerald-700">CICD</span></h1></div>{sideNav}</aside>
+    {mobileOpen ? <div className="fixed inset-0 z-20 bg-slate-950/30 lg:hidden" onClick={() => setMobileOpen(false)}><aside className="h-full w-64 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-gray-200 bg-slate-50 p-5"><h1 className="text-lg">agent<span className="font-light text-emerald-700">CICD</span></h1><button className="rounded-md p-2 hover:bg-slate-200" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X className="h-4 w-4" /></button></div>{sideNav}</aside></div> : null}
     <main className="min-w-0 flex-1"><header className="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4 lg:px-6"><button className="rounded-md p-2 hover:bg-slate-100 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu className="h-5 w-5" /></button><div className="min-w-0"><p className="truncate text-sm font-medium">{projectName}</p><p className="text-xs text-slate-500">Evaluation inspection</p></div></header><div className="min-h-[calc(100vh-4rem)] p-4 lg:p-6">{children}</div></main>
   </div>;
 }

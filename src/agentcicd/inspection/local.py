@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+import os
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 
+from agentcicd.inspection.entities import (
+    AnnotationQueueRead,
+    AnnotationRequestRead,
+    AnnotationReviewRead,
+    AnnotationTaskRead,
+    PoolLeaseRead,
+    PoolNodeRead,
+    RateLimitLeaseRead,
+)
 from agentcicd.inspection.models import (
     InspectionCapabilities,
     InspectionProject,
@@ -16,12 +31,16 @@ from agentcicd.inspection.models import (
     record,
 )
 from agentcicd.project import LocalRunSpec, load_project
+from agentcicd.sql.analysis import GraphEdge, GraphNode, build_recipe_dependency_graph
+from agentcicd.sql.parsing.segmentation import SQLSegmenter
 from agentcicd.sql.observability.redaction import redacted_preview
 
 
-_SAFE_ARTIFACT_SUFFIXES = frozenset({".html", ".json", ".jsonl", ".md", ".sql", ".txt"})
+_SAFE_ARTIFACT_SUFFIXES = frozenset({".html", ".json", ".jsonl", ".log", ".md", ".sql", ".txt"})
 _DEFAULT_PAGE_SIZE = 25
 _MAX_PAGE_SIZE = 1000
+_LOCAL_FIXTURE_CALL_PATTERN = re.compile(r"\blocal\.([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.IGNORECASE)
+_ANNOTATION_CONSENSUS_POLICIES = {"none", "majority", "unanimous"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +176,128 @@ class LocalInspectionStore:
             }
         )
 
+    def public_runs(self) -> list[dict[str, Any]]:
+        return [self.public_run(item.run_id) for item in self._runs()]
+
+    def public_run(self, run_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        progress = self._progress_payload(reference)
+        submitted_at = self._first_started_at(progress) or self._mtime_iso(reference.path)
+        return {
+            "id": reference.run_id,
+            "recipe_id": self._recipe_resource().id,
+            "recipe_version": 1,
+            "cluster_id": None,
+            "status": self._run_status(progress, reference.path),
+            "submitted_at": submitted_at,
+            "started_at": self._first_started_at(progress),
+            "finished_at": self._last_finished_at(progress),
+            "log_path": (reference.path / "logs").as_posix(),
+            "error": self._first_error(progress),
+            "payload": {
+                "source": "local",
+                "project_id": self.project_id,
+                "project_root": self._spec.paths.root.as_posix(),
+                "sql_text": self._spec.recipe_sql,
+            },
+            "aisystem_environment_bindings": {},
+            "target_aisystem_refs": [],
+            "resource_refs": [],
+        }
+
+    def public_progress(self, run_id: str) -> dict[str, Any]:
+        return {key: value for key, value in self.progress(run_id).items() if key != "schema_version"}
+
+    def public_recipes(self) -> dict[str, Any]:
+        return {"items": [self.public_recipe(self._recipe_resource().id)], "total": 1}
+
+    def public_recipe(self, recipe_id: str) -> dict[str, Any]:
+        recipe = self._recipe_resource()
+        if recipe_id != recipe.id:
+            raise KeyError(recipe_id)
+        return {
+            "id": recipe.id,
+            "name": recipe.name,
+            "description": None,
+            "source_text": self._spec.recipe_sql,
+            "version": 1,
+            "status": recipe.status,
+            "organization_id": self.project_id,
+            "analysis": self.recipe_analysis({"source_text": self._spec.recipe_sql}),
+        }
+
+    def recipe_segments(self, recipe_id: str) -> dict[str, Any]:
+        if recipe_id != self._recipe_resource().id:
+            raise KeyError(recipe_id)
+        return self._recipe_analysis_payload(self._spec.recipe_sql, segmentation_key="segments")
+
+    def recipe_analysis(self, payload: dict[str, Any]) -> dict[str, Any]:
+        source_text = str(payload.get("source_text") or self._spec.recipe_sql)
+        if not source_text.strip():
+            raise ValueError("source_text must not be empty")
+        return self._recipe_analysis_payload(source_text, segmentation_key="analysis")
+
+    def logs(self, run_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        logs_dir = reference.path / "logs"
+        files: list[dict[str, Any]] = []
+        text_parts: list[str] = []
+        for path in sorted(logs_dir.rglob("*")) if logs_dir.is_dir() else []:
+            if not path.is_file() or path.suffix.lower() not in _SAFE_ARTIFACT_SUFFIXES:
+                continue
+            relative = path.relative_to(reference.path).as_posix()
+            files.append(
+                {
+                    "name": path.name,
+                    "path": relative,
+                    "size_bytes": path.stat().st_size,
+                }
+            )
+        preferred = [
+            logs_dir / "run.log",
+            logs_dir / "app.log",
+            logs_dir / "engine_execution_report.json",
+        ]
+        for path in preferred:
+            if path.is_file():
+                text_parts.append(f"== {path.name} ==\n{self._replace_secret_values(path.read_text(encoding='utf-8'))}")
+        return envelope({"run_id": reference.run_id, "files": files, "text": "\n\n".join(text_parts)})
+
+    def graph(self, run_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        nodes, edges = self._recipe_graph()
+        progress_by_name = {
+            str(step.get("step_name") or "").lower(): step
+            for step in self._progress_payload(reference)
+        }
+        graph_nodes = []
+        for node in nodes:
+            progress = progress_by_name.get(node.label.lower())
+            graph_nodes.append(
+                {
+                    "id": node.id,
+                    "type": node.type,
+                    "label": node.label,
+                    "status": "available" if node.type == "secret" else str(progress.get("status")) if progress else "pending",
+                    "details": {
+                        "row_count": progress.get("row_count") if progress else None,
+                        "row_error_count": progress.get("row_error_count") if progress else None,
+                        "cell_error_count": progress.get("cell_error_count") if progress else None,
+                        "error": progress.get("error") if progress else None,
+                    },
+                }
+            )
+        return envelope(
+            {
+                "run_id": reference.run_id,
+                "nodes": self._redact(graph_nodes),
+                "edges": [
+                    {"from_id": edge.from_id, "to_id": edge.to_id, "relation": edge.relation}
+                    for edge in edges
+                ],
+            }
+        )
+
     def report(self, run_id: str) -> dict[str, Any]:
         reference = self._run(run_id)
         payload = self._report_payload(reference)
@@ -268,11 +409,345 @@ class LocalInspectionStore:
             raise KeyError(artifact_name)
         return self._content_type(artifact_path), self._redacted_file_bytes(artifact_path)
 
+    def annotation_requests(self, run_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        items = [record(item) for item in self._annotation_request_records(reference)]
+        return envelope({"items": self._redact(items), "total": len(items)})
+
+    def annotation_request(self, run_id: str, request_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        request = self._annotation_request_record(reference, request_id)
+        return envelope({"request": self._redact(record(request)), "progress": self._annotation_progress(reference, request_id)})
+
+    def annotation_tasks(self, run_id: str, request_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        request_root = self._annotation_request_root(reference, request_id)
+        tasks = [record(self._annotation_task_read(reference, request_root, task)) for task in self._annotation_task_payloads(request_root)]
+        completed = sum(1 for task in tasks if task.get("status") == "labeled")
+        return envelope({"request_id": request_root.name, "tasks": self._redact(tasks), "total": len(tasks), "completed": completed})
+
+    def annotation_task(self, run_id: str, request_id: str, task_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        request_root = self._annotation_request_root(reference, request_id)
+        for task in self._annotation_task_payloads(request_root):
+            if str(task.get("task_id") or "") == task_id:
+                return envelope({"request_id": request_root.name, "task": self._redact(record(self._annotation_task_read(reference, request_root, task)))})
+        raise KeyError(task_id)
+
+    def submit_annotation_review(self, run_id: str, request_id: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        reference = self._run(run_id)
+        request_root = self._annotation_request_root(reference, request_id)
+        tasks_by_id = {str(task.get("task_id") or ""): task for task in self._annotation_task_payloads(request_root)}
+        if task_id not in tasks_by_id:
+            raise KeyError(task_id)
+        reviewer_id = str(payload.get("reviewer_id") or "").strip()
+        if not reviewer_id:
+            raise ValueError("reviewer_id is required")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            result = {}
+        submitted_at = self._now()
+        review = AnnotationReviewRead(task_id=task_id, reviewer_id=reviewer_id, submitted_at=submitted_at, result=result)
+        review_path = self._annotation_review_path(request_root, task_id, reviewer_id)
+        review_path.parent.mkdir(parents=True, exist_ok=True)
+        review_path.write_text(json.dumps(record(review), indent=2, ensure_ascii=False), encoding="utf-8")
+        self._update_annotation_manifest_progress(reference, request_root)
+        return envelope({"review": self._redact(record(review)), "progress": self._annotation_progress(reference, request_root.name)})
+
+    def finalize_annotation_request(self, run_id: str, request_id: str) -> dict[str, Any]:
+        reference = self._run(run_id)
+        request_root = self._annotation_request_root(reference, request_id)
+        tasks = self._annotation_task_payloads(request_root)
+        lines: list[str] = []
+        for task in tasks:
+            task_id = str(task.get("task_id") or "")
+            reviews = self._annotation_reviews(request_root, task_id)
+            if len(reviews) < self._annotation_reviewers_per_task(request_root):
+                raise RuntimeError("Annotation request is not complete")
+            result = self._resolve_annotation_result(request_root, task_id, reviews)
+            lines.append(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "data": task.get("data") if isinstance(task.get("data"), dict) else {},
+                        "result": result,
+                        "reviews": reviews,
+                    },
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+            )
+        results_path = request_root / "results.jsonl"
+        results_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        self._update_annotation_manifest_progress(reference, request_root, status="completed")
+        progress = self._annotation_progress(reference, request_root.name)
+        return envelope(
+            {
+                "request_id": request_root.name,
+                "total_tasks": progress["total_tasks"],
+                "completed_tasks": progress["completed_tasks"],
+                "results_path": results_path.as_posix(),
+            }
+        )
+
+    def runtime_pools(self, run_id: str) -> dict[str, Any]:
+        self._run(run_id)
+        snapshot = self._runtime_control_json("/pools/snapshot")
+        raw_nodes = snapshot.get("nodes") if isinstance(snapshot.get("nodes"), dict) else {}
+        raw_leases = snapshot.get("leases") if isinstance(snapshot.get("leases"), dict) else {}
+        leases = [self._pool_lease_record(lease_id, lease) for lease_id, lease in sorted(raw_leases.items()) if isinstance(lease, dict)]
+        nodes = [
+            self._pool_node_record(node, list(raw_leases.values()))
+            for node in raw_nodes.values()
+            if isinstance(node, dict)
+        ]
+        return envelope({"run_id": run_id, "nodes": [record(item) for item in nodes], "leases": [record(item) for item in leases]})
+
+    def runtime_rate_limits(self, run_id: str) -> dict[str, Any]:
+        self._run(run_id)
+        snapshot = self._runtime_control_json("/rate-limit/status")
+        limiters = snapshot.get("limiters") if isinstance(snapshot.get("limiters"), dict) else {}
+        leases = [
+            RateLimitLeaseRead(
+                lease_id=f"limiter.{key}",
+                key=str(key),
+                max_in_flight=int((value or {}).get("max_in_flight") or 0) if isinstance(value, dict) else 0,
+                active_count=int((value or {}).get("in_flight") or 0) if isinstance(value, dict) else 0,
+                request_id="",
+                acquired_at=None,
+                expires_at=None,
+            )
+            for key, value in sorted(limiters.items())
+        ]
+        return envelope({"run_id": run_id, "leases": [record(item) for item in leases]})
+
+    def _annotation_request_records(self, reference: LocalRunReference) -> list[AnnotationRequestRead]:
+        root = reference.path / "annotation_tasks"
+        if not root.is_dir():
+            return []
+        records: list[AnnotationRequestRead] = []
+        for request_root in sorted(path for path in root.iterdir() if path.is_dir() and path.name.startswith("annreq.")):
+            records.append(self._annotation_request_record(reference, request_root.name))
+        return records
+
+    def _annotation_request_record(self, reference: LocalRunReference, request_id: str) -> AnnotationRequestRead:
+        request_root = self._annotation_request_root(reference, request_id)
+        manifest = self._read_json(request_root / "manifest.json")
+        progress = self._annotation_progress(reference, request_root.name)
+        queue_name = str(manifest.get("queue_name") or "default")
+        created_at = self._timestamp(request_root / "manifest.json")
+        updated_at = self._timestamp(request_root / "results.jsonl") or created_at
+        return AnnotationRequestRead(
+            id=request_root.name,
+            organization_id=None,
+            local_project_id=self.project_id,
+            queue_id=f"annq.{self._slug(queue_name)}",
+            run_id=reference.run_id,
+            recipe_id="recipe.sql",
+            cluster_id=None,
+            source_table=str(manifest.get("source_table") or manifest.get("table") or ""),
+            publish_alias=str(manifest.get("publish_alias")) if manifest.get("publish_alias") else None,
+            instructions=str(manifest.get("instructions")) if manifest.get("instructions") else None,
+            reviewers_per_task=self._annotation_reviewers_per_task(request_root),
+            reservation_minutes=self._annotation_reservation_minutes(request_root),
+            consensus=self._annotation_consensus(request_root),
+            template_snapshot=str(manifest.get("template") or ""),
+            data_path=str(manifest.get("data_path") or (request_root / "tasks.jsonl").as_posix()),
+            reviews_path=str(manifest.get("reviews_path") or (request_root / "reviews").as_posix()),
+            results_path=str(manifest.get("results_path") or (request_root / "results.jsonl").as_posix()),
+            manifest_path=str(manifest.get("manifest_path") or (request_root / "manifest.json").as_posix()),
+            status=str(progress["status"]),
+            total_tasks=int(progress["total_tasks"]),
+            completed_tasks=int(progress["completed_tasks"]),
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    def _annotation_request_root(self, reference: LocalRunReference, request_id: str) -> Path:
+        root = reference.path / "annotation_tasks"
+        direct = self._safe_child(root, request_id)
+        if direct.is_dir() and direct.name.startswith("annreq."):
+            return direct
+        alias_file = direct / "request.json"
+        if alias_file.is_file():
+            payload = self._read_json(alias_file)
+            resolved = str(payload.get("request_id") or "").strip()
+            if resolved:
+                resolved_root = self._safe_child(root, resolved)
+                if resolved_root.is_dir():
+                    return resolved_root
+        raise KeyError(request_id)
+
+    def _annotation_progress(self, reference: LocalRunReference, request_id: str) -> dict[str, Any]:
+        request_root = self._annotation_request_root(reference, request_id)
+        tasks = self._annotation_task_payloads(request_root)
+        completed = sum(1 for task in tasks if self._annotation_task_status(request_root, str(task.get("task_id") or "")) == "labeled")
+        status = "completed" if (request_root / "results.jsonl").is_file() else "pending"
+        if tasks and completed >= len(tasks) and status != "completed":
+            status = "ready_to_finalize"
+        return {
+            "request_id": request_root.name,
+            "total_tasks": len(tasks),
+            "completed_tasks": completed,
+            "status": status,
+        }
+
+    def _annotation_task_payloads(self, request_root: Path) -> list[dict[str, Any]]:
+        return self._read_jsonl(request_root / "tasks.jsonl")
+
+    def _annotation_task_read(self, reference: LocalRunReference, request_root: Path, task: dict[str, Any]) -> AnnotationTaskRead:
+        task_id = str(task.get("task_id") or task.get("id") or "")
+        return AnnotationTaskRead(
+            task_id=task_id,
+            data=task.get("data") if isinstance(task.get("data"), dict) else {key: value for key, value in task.items() if key != "task_id"},
+            status=self._annotation_task_status(request_root, task_id),
+            review_count=len(self._annotation_reviews(request_root, task_id)),
+        )
+
+    def _annotation_task_status(self, request_root: Path, task_id: str) -> str:
+        if len(self._annotation_reviews(request_root, task_id)) < self._annotation_reviewers_per_task(request_root):
+            return "unlabeled"
+        try:
+            self._resolve_annotation_result(request_root, task_id, self._annotation_reviews(request_root, task_id))
+        except RuntimeError:
+            return "unlabeled"
+        return "labeled"
+
+    def _annotation_reviews(self, request_root: Path, task_id: str) -> list[dict[str, Any]]:
+        reviews_dir = self._safe_child(request_root / "reviews", f"task={task_id}")
+        if not reviews_dir.is_dir():
+            return []
+        return [
+            self._read_json(path)
+            for path in sorted(reviews_dir.glob("reviewer=*.json"))
+            if path.is_file()
+        ]
+
+    def _annotation_review_path(self, request_root: Path, task_id: str, reviewer_id: str) -> Path:
+        safe_task_id = self._safe_ref(task_id)
+        safe_reviewer_id = self._safe_ref(reviewer_id)
+        return request_root / "reviews" / f"task={safe_task_id}" / f"reviewer={safe_reviewer_id}.json"
+
+    def _annotation_reviewers_per_task(self, request_root: Path) -> int:
+        return max(1, int(self._annotation_review_policy(request_root).get("reviewers_per_task") or 1))
+
+    def _annotation_reservation_minutes(self, request_root: Path) -> int:
+        return max(5, int(self._annotation_review_policy(request_root).get("reservation_minutes") or 30))
+
+    def _annotation_consensus(self, request_root: Path) -> str:
+        value = str(self._annotation_review_policy(request_root).get("consensus") or "none").strip().lower()
+        return value if value in _ANNOTATION_CONSENSUS_POLICIES else "none"
+
+    def _annotation_review_policy(self, request_root: Path) -> dict[str, Any]:
+        manifest = self._read_json(request_root / "manifest.json")
+        policy = manifest.get("review_policy")
+        return dict(policy) if isinstance(policy, dict) else {}
+
+    def _resolve_annotation_result(self, request_root: Path, task_id: str, reviews: list[dict[str, Any]]) -> dict[str, Any]:
+        results = [review.get("result") for review in reviews if isinstance(review.get("result"), dict)]
+        if not results:
+            return {}
+        policy = self._annotation_consensus(request_root)
+        if policy == "none":
+            return dict(results[0])
+        counts: dict[str, int] = {}
+        values: dict[str, dict[str, Any]] = {}
+        for result in results:
+            key = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            counts[key] = counts.get(key, 0) + 1
+            values[key] = result
+        winner_key, winner_count = max(counts.items(), key=lambda item: item[1])
+        required = self._annotation_reviewers_per_task(request_root)
+        if policy == "unanimous" and winner_count == len(results) and len(results) >= required:
+            return dict(values[winner_key])
+        if policy == "majority" and winner_count >= required // 2 + 1:
+            return dict(values[winner_key])
+        raise RuntimeError(f"Task {task_id} has no {policy} consensus")
+
+    def _update_annotation_manifest_progress(self, reference: LocalRunReference, request_root: Path, *, status: str | None = None) -> None:
+        manifest_path = request_root / "manifest.json"
+        manifest = self._read_json(manifest_path)
+        progress = self._annotation_progress(reference, request_root.name)
+        manifest["total_tasks"] = progress["total_tasks"]
+        manifest["completed_tasks"] = progress["completed_tasks"]
+        manifest["status"] = status or progress["status"]
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def _runtime_control_json(self, path: str) -> dict[str, Any]:
+        base_url = os.getenv("AGENTCICD_RATE_LIMITER_BASE_URL", "").strip()
+        if not base_url:
+            return {}
+        try:
+            with urlopen(f"{base_url.rstrip('/')}{path}", timeout=0.3) as response:  # noqa: S310
+                payload = json.loads(response.read().decode("utf-8") or "{}")
+        except (OSError, URLError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _pool_node_record(self, node: dict[str, Any], leases: list[Any]) -> PoolNodeRead:
+        node_id = str(node.get("node_id") or "")
+        capacity = int(node.get("capacity") or 1)
+        leased = sum(1 for lease in leases if isinstance(lease, dict) and str(lease.get("node_id") or "") == node_id)
+        metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+        return PoolNodeRead(
+            pool_name=str(node.get("pool_name") or ""),
+            pool_kind=str(node.get("pool_kind") or ""),
+            node_id=node_id,
+            address=str(node.get("address")) if node.get("address") else None,
+            status=str(node.get("status") or ""),
+            capacity=capacity,
+            available=max(0, capacity - leased),
+            generation=int(node.get("generation") or metadata.get("generation") or 1),
+        )
+
+    def _pool_lease_record(self, lease_id: str, lease: dict[str, Any]) -> PoolLeaseRead:
+        return PoolLeaseRead(
+            lease_id=lease_id,
+            pool_name=str(lease.get("pool_name") or ""),
+            pool_kind=str(lease.get("pool_kind") or ""),
+            node_id=str(lease.get("node_id") or ""),
+            manager_id=str(lease.get("manager_id") or ""),
+            worker_slot_id=str(lease.get("worker_slot_id") or ""),
+            address=str(lease.get("address")) if lease.get("address") else None,
+            request_id=str(lease.get("request_id") or ""),
+            executor_id=str(lease.get("executor_id") or ""),
+            fixture_id=str(lease.get("fixture_id") or ""),
+            status=str(lease.get("status") or ""),
+            acquired_at=float(lease["acquired_at"]) if lease.get("acquired_at") is not None else None,
+            expires_at=float(lease["expires_at"]) if lease.get("expires_at") is not None else None,
+            generation=int(lease.get("generation") or 1),
+            lease_decision=str(lease.get("lease_decision") or ""),
+        )
+
+    @staticmethod
+    def _safe_ref(value: str) -> str:
+        return str(value or "").strip().replace("/", "_")
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        normalized = "".join(ch.lower() if ch.isalnum() else "_" for ch in value.strip())
+        return "_".join(part for part in normalized.split("_") if part) or "default"
+
+    @staticmethod
+    def _timestamp(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
     def _recipe_resource(self) -> InspectionResource:
         return InspectionResource(id="recipe.sql", name="recipe.sql", status="available")
 
     def _fixture_resources(self) -> tuple[InspectionResource, ...]:
-        return tuple(self._fixture_resource(path) for path in self._spec.fixture_sources)
+        used_names = self._used_fixture_names()
+        return tuple(
+            self._fixture_resource(path)
+            for path in self._spec.fixture_sources
+            if used_names.intersection(self._fixture_function_names(path))
+        )
 
     def _fixture_resource(self, source: Path) -> InspectionResource:
         relative_path = source.relative_to(self._spec.paths.root).as_posix()
@@ -280,7 +755,10 @@ class LocalInspectionStore:
             id=relative_path,
             name=source.stem.removeprefix("fixture_") or source.stem,
             status="available",
-            details={"path": relative_path},
+            details={
+                "path": relative_path,
+                "functions": sorted(self._fixture_function_names(source)),
+            },
         )
 
     def _input_resources(self) -> list[dict[str, Any]]:
@@ -302,6 +780,7 @@ class LocalInspectionStore:
         return resources
 
     def _secret_resources(self) -> list[dict[str, Any]]:
+        used_secret_references = self._used_secret_references()
         return [
             {
                 "reference": record.id,
@@ -310,7 +789,336 @@ class LocalInspectionStore:
                 "description": record.description,
             }
             for record in self._spec.secrets
+            if record.id in used_secret_references
         ]
+
+    def _recipe_graph(self) -> tuple[list[GraphNode], list[GraphEdge]]:
+        return self._build_stable_recipe_graph(self._spec.recipe_sql)
+
+    def _build_stable_recipe_graph(self, source_text: str) -> tuple[list[GraphNode], list[GraphEdge]]:
+        segmentation = SQLSegmenter(source_text).segment()
+        input_segments = [self._segment_record(item) for item in segmentation.inputs]
+        function_segments = [self._segment_record(item) for item in segmentation.functions]
+        load_segments = [self._segment_record(item) for item in segmentation.loads]
+        table_segments = [self._segment_record(item) for item in segmentation.tables]
+        save_segments = [self._segment_record(item) for item in segmentation.saves]
+        publish_segments = [self._segment_record(item) for item in segmentation.publishes]
+        publish_annotation_segments = [self._segment_record(item) for item in segmentation.publish_annotations]
+        retrieve_annotation_segments = [self._segment_record(item) for item in segmentation.retrieve_annotations]
+        nodes, edges = build_recipe_dependency_graph(
+            segmentation=segmentation,
+            input_segments=input_segments,
+            function_segments=function_segments,
+            load_segments=load_segments,
+            table_segments=table_segments,
+            save_segments=save_segments,
+            publish_segments=publish_segments,
+            publish_annotation_segments=publish_annotation_segments,
+            retrieve_annotation_segments=retrieve_annotation_segments,
+            registered_function_names={f"local.{name}" for name in self._used_fixture_names()},
+        )
+        nodes, edges = self._stable_recipe_graph(
+            nodes=nodes,
+            edges=edges,
+            function_segments=function_segments,
+            load_segments=load_segments,
+            table_segments=table_segments,
+            save_segments=save_segments,
+            publish_segments=publish_segments,
+            publish_annotation_segments=publish_annotation_segments,
+            retrieve_annotation_segments=retrieve_annotation_segments,
+        )
+        node_ids = {node.id for node in nodes}
+        edge_keys = {(edge.from_id, edge.to_id, edge.relation) for edge in edges}
+
+        def add_node_once(node_id: str, node_type: str, label: object) -> None:
+            if node_id in node_ids:
+                return
+            nodes.append(GraphNode(id=node_id, type=node_type, label=str(label or "unknown")))
+            node_ids.add(node_id)
+
+        def add_edge_once(from_id: str, to_id: str, relation: str) -> None:
+            key = (from_id, to_id, relation)
+            if key in edge_keys:
+                return
+            edges.append(GraphEdge(from_id=from_id, to_id=to_id, relation=relation))
+            edge_keys.add(key)
+
+        for index, segment in enumerate(save_segments):
+            table_name = segment.get("table")
+            table_id = self._stable_recipe_item_id("table", table_name)
+            save_id = self._stable_recipe_item_id("save", table_name)
+            if save_id in node_ids:
+                add_node_once(table_id, "table", table_name)
+                add_edge_once(table_id, save_id, "save_from_table")
+
+        for index, segment in enumerate(publish_segments):
+            table_name = segment.get("table")
+            destination = str(segment.get("destination") or "").upper()
+            component = str(segment.get("component") or "").lower()
+            table_id = self._stable_recipe_item_id("table", table_name)
+            publish_id = self._stable_publish_id(table_name, segment.get("destination"), segment.get("component"), index)
+            if publish_id not in node_ids:
+                continue
+            add_node_once(table_id, "table", table_name)
+            if destination == "DATASET":
+                relation = "publish_dataset"
+            elif destination == "REPORTS":
+                relation = f"publish_report_{component or 'other'}"
+            else:
+                relation = "publish"
+            add_edge_once(table_id, publish_id, relation)
+
+        for index, segment in enumerate(publish_annotation_segments):
+            table_name = segment.get("table")
+            table_id = self._stable_recipe_item_id("table", table_name)
+            publish_id = self._stable_annotation_publish_id(segment.get("alias") or segment.get("queue_name"), index)
+            if publish_id in node_ids:
+                add_node_once(table_id, "table", table_name)
+                add_edge_once(table_id, publish_id, "publish_annotation")
+
+        for input_name, secret_reference in self._used_secret_input_references(source_text).items():
+            secret_id = f"secret:{secret_reference.removeprefix('secret.')}"
+            input_id = self._stable_recipe_item_id("input", input_name)
+            if secret_id not in node_ids:
+                nodes.append(GraphNode(id=secret_id, type="secret", label=secret_reference))
+                node_ids.add(secret_id)
+            edges.append(GraphEdge(from_id=secret_id, to_id=input_id, relation="provided_to"))
+        return nodes, edges
+
+    def _recipe_analysis_payload(self, source_text: str, *, segmentation_key: str) -> dict[str, Any]:
+        segmentation = SQLSegmenter(source_text).segment()
+        inputs = [self._stable_segment_record("input", item.name, item) for item in segmentation.inputs]
+        functions = [self._stable_segment_record("function", item.name, item) for item in segmentation.functions]
+        loads = [self._stable_segment_record("load", item.table, item) for item in segmentation.loads]
+        tables = [self._stable_segment_record("table", item.table, item) for item in segmentation.tables]
+        saves = [self._stable_segment_record("save", item.table, item) for item in segmentation.saves]
+        publishes = [
+            {
+                **self._segment_record(item),
+                "id": self._stable_publish_id(item.table, item.destination, item.component, index),
+                "source_id": self._stable_recipe_item_id("table", item.table),
+            }
+            for index, item in enumerate(segmentation.publishes)
+        ]
+        publish_annotations = [
+            {
+                **self._segment_record(item),
+                "id": self._stable_annotation_publish_id(item.alias or item.queue_name or item.table, index),
+                "source_id": self._stable_recipe_item_id("table", item.table),
+                "kind": "annotation",
+            }
+            for index, item in enumerate(segmentation.publish_annotations)
+        ]
+        retrieves = [
+            {
+                **self._segment_record(item),
+                "id": self._stable_annotation_retrieve_id(item.table, index),
+                "target_id": self._stable_recipe_item_id("table", item.table),
+            }
+            for index, item in enumerate(segmentation.retrieve_annotations)
+        ]
+        nodes, edges = self._build_stable_recipe_graph(source_text)
+        metadata = {
+            "total_segments": segmentation.get_segment_count(),
+            "total_lines": segmentation.total_lines,
+            "has_macros": segmentation.has_macros,
+            "macro_placeholders": segmentation.macro_placeholders,
+        }
+        dependency_edges = [{"from_id": edge.from_id, "to_id": edge.to_id, "relation": edge.relation} for edge in edges]
+        payload: dict[str, Any] = {
+            "schema_version": "recipe_analysis.v2" if segmentation_key == "analysis" else "recipe_segmentation.v1",
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "inputs": inputs,
+            "functions": functions,
+            "loads": loads,
+            "tables": tables,
+            "saves": saves,
+            "publishes": [*publishes, *publish_annotations],
+            "retrieves": retrieves,
+            "nodes": [{"id": node.id, "type": node.type, "label": node.label} for node in nodes],
+            "dependencies": dependency_edges,
+            "graph": [{"from": edge.from_id, "to": edge.to_id, "relation": edge.relation} for edge in edges],
+            "fixtures": [],
+            "metadata": metadata,
+        }
+        if segmentation_key == "segments":
+            payload["publish_annotations"] = publish_annotations
+            payload["retrieve_annotations"] = retrieves
+        else:
+            payload["report"] = {
+                "components": publishes,
+                "metrics": [item for item in publishes if str(item.get("component") or "").lower() == "metric"],
+                "charts": [item for item in publishes if str(item.get("component") or "").lower() == "chart"],
+                "issues": [item for item in publishes if str(item.get("component") or "").lower() == "issue"],
+                "examples": [item for item in publishes if str(item.get("component") or "").lower() == "example"],
+                "datasets": [item for item in publishes if str(item.get("destination") or "").lower() == "dataset"],
+                "layout": [],
+            }
+        return self._redact(payload)
+
+    @classmethod
+    def _stable_recipe_graph(
+        cls,
+        *,
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        function_segments: list[dict[str, Any]],
+        load_segments: list[dict[str, Any]],
+        table_segments: list[dict[str, Any]],
+        save_segments: list[dict[str, Any]],
+        publish_segments: list[dict[str, Any]],
+        publish_annotation_segments: list[dict[str, Any]],
+        retrieve_annotation_segments: list[dict[str, Any]],
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        node_id_map: dict[str, str] = {}
+        stable_nodes: list[GraphNode] = []
+        seen_nodes: set[str] = set()
+        for node in nodes:
+            stable_id = cls._stable_graph_node_id(
+                node_id=node.id,
+                node_type=node.type,
+                label=node.label,
+                function_segments=function_segments,
+                load_segments=load_segments,
+                table_segments=table_segments,
+                save_segments=save_segments,
+                publish_segments=publish_segments,
+                publish_annotation_segments=publish_annotation_segments,
+                retrieve_annotation_segments=retrieve_annotation_segments,
+            )
+            node_id_map[node.id] = stable_id
+            if stable_id in seen_nodes:
+                continue
+            seen_nodes.add(stable_id)
+            stable_nodes.append(GraphNode(id=stable_id, type=node.type, label=node.label))
+
+        stable_edges: list[GraphEdge] = []
+        seen_edges: set[tuple[str, str, str]] = set()
+        for edge in edges:
+            from_id = node_id_map.get(edge.from_id)
+            to_id = node_id_map.get(edge.to_id)
+            if not from_id or not to_id:
+                continue
+            key = (from_id, to_id, edge.relation)
+            if key in seen_edges:
+                continue
+            seen_edges.add(key)
+            stable_edges.append(GraphEdge(from_id=from_id, to_id=to_id, relation=edge.relation))
+        return stable_nodes, stable_edges
+
+    @classmethod
+    def _stable_graph_node_id(
+        cls,
+        *,
+        node_id: str,
+        node_type: str,
+        label: str,
+        function_segments: list[dict[str, Any]],
+        load_segments: list[dict[str, Any]],
+        table_segments: list[dict[str, Any]],
+        save_segments: list[dict[str, Any]],
+        publish_segments: list[dict[str, Any]],
+        publish_annotation_segments: list[dict[str, Any]],
+        retrieve_annotation_segments: list[dict[str, Any]],
+    ) -> str:
+        prefix, _, raw_index = node_id.partition(":")
+        index = int(raw_index) if raw_index.isdigit() else -1
+        if prefix == "function" and 0 <= index < len(function_segments):
+            return cls._stable_recipe_item_id("function", function_segments[index].get("name"))
+        if prefix == "load" and 0 <= index < len(load_segments):
+            return cls._stable_recipe_item_id("load", load_segments[index].get("table"))
+        if prefix == "table" and 0 <= index < len(table_segments):
+            return cls._stable_recipe_item_id("table", table_segments[index].get("table"))
+        if prefix == "save" and 0 <= index < len(save_segments):
+            return cls._stable_recipe_item_id("save", save_segments[index].get("table"))
+        if prefix == "publish" and 0 <= index < len(publish_segments):
+            segment = publish_segments[index]
+            return cls._stable_publish_id(segment.get("table"), segment.get("destination"), segment.get("component"), index)
+        if prefix == "publish_annotation" and 0 <= index < len(publish_annotation_segments):
+            segment = publish_annotation_segments[index]
+            return cls._stable_annotation_publish_id(segment.get("alias") or segment.get("queue_name"), index)
+        if prefix == "retrieve_annotation" and 0 <= index < len(retrieve_annotation_segments):
+            return cls._stable_annotation_retrieve_id(retrieve_annotation_segments[index].get("table"), index)
+        if node_type == "table":
+            return cls._stable_recipe_item_id("table", label)
+        if node_type == "load":
+            return cls._stable_recipe_item_id("load", label)
+        if node_type.startswith("publish_report"):
+            return cls._stable_publish_id(label, "reports", node_type.removeprefix("publish_report_"), 0)
+        if node_type == "publish_dataset":
+            return cls._stable_publish_id(label, "dataset", "", 0)
+        return node_id
+
+    @classmethod
+    def _stable_recipe_item_id(cls, prefix: str, name: object) -> str:
+        return f"{prefix}:{cls._stable_slug(str(name or 'unknown'))}"
+
+    @classmethod
+    def _stable_publish_id(cls, table: object, destination: object, component: object, index: int) -> str:
+        destination_slug = cls._stable_slug(str(destination or "publish"))
+        table_slug = cls._stable_slug(str(table or f"publish_{index + 1}"))
+        component_slug = cls._stable_slug(str(component or ""))
+        suffix = f":{component_slug}" if component_slug else ""
+        return f"publish:{table_slug}:{destination_slug}{suffix}"
+
+    @classmethod
+    def _stable_annotation_publish_id(cls, ref: object, index: int) -> str:
+        return f"publish:{cls._stable_slug(str(ref or f'annotation_{index + 1}'))}:annotation"
+
+    @classmethod
+    def _stable_annotation_retrieve_id(cls, table: object, index: int) -> str:
+        return f"retrieve:{cls._stable_slug(str(table or f'annotations_{index + 1}'))}:annotation"
+
+    @staticmethod
+    def _stable_slug(value: str) -> str:
+        return "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in value.strip().lower()).strip("_") or "unknown"
+
+    @staticmethod
+    def _segment_record(segment: object) -> dict[str, Any]:
+        payload = dict(vars(segment))
+        payload["source_text"] = payload.pop("sql_text", "")
+        return payload
+
+    @classmethod
+    def _stable_segment_record(cls, prefix: str, name: object, segment: object) -> dict[str, Any]:
+        return {"id": cls._stable_recipe_item_id(prefix, name), **cls._segment_record(segment)}
+
+    def _used_fixture_names(self) -> set[str]:
+        return {match.group(1).lower() for match in _LOCAL_FIXTURE_CALL_PATTERN.finditer(self._spec.recipe_sql)}
+
+    def _fixture_function_names(self, source: Path) -> set[str]:
+        try:
+            tree = ast.parse(source.read_text(encoding="utf-8"), filename=source.name)
+        except (OSError, SyntaxError):
+            return set()
+        return {
+            node.name.lower()
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_")
+        }
+
+    def _used_secret_input_references(self, source_text: str | None = None) -> dict[str, str]:
+        used_input_names = self._used_input_names(source_text or self._spec.recipe_sql)
+        return {
+            name: value
+            for name, value in self._spec.inputs.input_values.items()
+            if name in used_input_names and isinstance(value, str) and value.startswith("secret.")
+        }
+
+    def _used_secret_references(self) -> set[str]:
+        return set(self._used_secret_input_references().values())
+
+    def _used_input_names(self, source_text: str | None = None) -> set[str]:
+        declarations = self._spec.inputs.input_sources
+        non_declaration_sql = re.sub(r"(?is)\bDECLARE\s+INPUT\b.*?;", "", source_text or self._spec.recipe_sql)
+        return {
+            name
+            for name in declarations
+            if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", non_declaration_sql)
+        }
 
     def _run_resources(self) -> tuple[InspectionRun, ...]:
         items: list[InspectionRun] = []
@@ -373,16 +1181,28 @@ class LocalInspectionStore:
             for field_name in ("error", "error_type", "error_traceback", "row_count", "row_error_count", "cell_error_count", "reuse_state", "cache_hits", "cache_misses", "cache_writes"):
                 if field_name in event:
                     current[field_name] = event[field_name]
+            timestamp = str(current.get("started_at") or current.get("finished_at") or datetime.now(timezone.utc).isoformat())
+            current.setdefault("created_at", timestamp)
+            current["updated_at"] = str(current.get("finished_at") or timestamp)
         return [self._redact(item) for item in indexed.values()]
 
     def _report_payload(self, reference: LocalRunReference) -> dict[str, Any]:
         reports_dir = reference.path / "reports"
         return {
-            "metrics": self._redact(self._read_json_list(reports_dir / "metrics.json")),
-            "issues": self._redact(self._read_json_list(reports_dir / "issues.json")),
-            "charts": self._redact(self._read_json_list(reports_dir / "charts.json")),
+            "metrics": self._redact(self._present_report_values(self._read_json_list(reports_dir / "metrics.json"))),
+            "issues": self._redact(self._present_report_values(self._read_json_list(reports_dir / "issues.json"))),
+            "charts": self._redact(self._present_report_values(self._read_json_list(reports_dir / "charts.json"))),
             "layout_json": {},
         }
+
+    def _present_report_values(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            if value.get("__agentcicd_cell") is True and "value" in value:
+                return self._present_report_values(value["value"])
+            return {key: self._present_report_values(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._present_report_values(item) for item in value]
+        return value
 
     def _execution_summary(self, steps: Iterable[dict[str, Any]]) -> dict[str, int]:
         values = list(steps)
@@ -413,6 +1233,17 @@ class LocalInspectionStore:
     def _last_finished_at(steps: Iterable[dict[str, Any]]) -> str | None:
         values = sorted(str(item["finished_at"]) for item in steps if item.get("finished_at"))
         return values[-1] if values else None
+
+    @staticmethod
+    def _first_error(steps: Iterable[dict[str, Any]]) -> str | None:
+        for item in steps:
+            if item.get("error"):
+                return str(item["error"])
+        return None
+
+    @staticmethod
+    def _mtime_iso(path: Path) -> str:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
 
     def _table_dir(self, reference: LocalRunReference, table_name: str) -> Path:
         path = self._safe_child(reference.path / "tables", table_name)

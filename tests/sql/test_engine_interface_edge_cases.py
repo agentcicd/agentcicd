@@ -47,6 +47,32 @@ def test_retrieve_annotation_supports_json_results(local_spark, tmp_path: Path):
     assert sorted((row["id"]["value"], row["label"]["value"]) for row in rows) == [(1, "approved"), (2, "review")]
 
 
+def test_retrieve_annotation_resolves_local_alias_request(local_spark, tmp_path: Path):
+    annotation_root = tmp_path / "annotation_tasks" / "annreq.generated"
+    annotation_root.mkdir(parents=True)
+    (annotation_root / "results.jsonl").write_text(
+        '{"task_id":"task_000000","result":{"label":"approved"}}\n',
+        encoding="utf-8",
+    )
+    alias_root = tmp_path / "annotation_tasks" / "policy_review"
+    alias_root.mkdir()
+    (alias_root / "request.json").write_text('{"request_id":"annreq.generated"}', encoding="utf-8")
+
+    script = """
+    RETRIEVE ANNOTATION RESULTS labeled FROM policy_review;
+
+    CREATE BATCH TABLE out
+    SELECT task_id, result.label AS label
+    FROM labeled;
+    """
+
+    backend = SparkExecutionBackend(local_spark, working_dir=str(tmp_path))
+    EngineEntrypoint(script).execute(backend, include_cells=True)
+
+    rows = local_spark.read.parquet(str(tmp_path / "tables" / "out")).collect()
+    assert [(row["task_id"]["value"], row["label"]["value"]) for row in rows] == [("task_000000", "approved")]
+
+
 def test_save_jsonl_normalization_writes_readable_json_records(local_spark, tmp_path: Path):
     raw_path = tmp_path / "raw_input"
     export_path = tmp_path / "saved_jsonl"

@@ -66,7 +66,19 @@ export function ProjectInspector({ client, projectId, onSelectRun }: { client: I
   const content = section === "overview"
     ? <ProjectOverview project={project} onNavigate={setSection} />
     : <ProjectResourceWorkspace client={client} projectId={projectId} project={project} section={section} onSelectRun={onSelectRun} />;
-  return <InspectionShell projectName={project.project.name} activeSection={section} onNavigate={setSection}>{content}</InspectionShell>;
+  return <InspectionShell projectName={project.project.name} activeSection={legacySectionNavigation(section)} onNavigate={(nextSection) => setSection(legacySectionSelection(nextSection))}>{content}</InspectionShell>;
+}
+
+function legacySectionNavigation(section: InspectionSection): InspectionSection {
+  if (section === "recipes") return "recipe";
+  if (section === "runs") return "run";
+  return section;
+}
+
+function legacySectionSelection(section: InspectionSection): InspectionSection {
+  if (section === "recipe") return "recipes";
+  if (section === "run") return "runs";
+  return section;
 }
 
 function ProjectOverview({ project, onNavigate }: { project: ProjectInspection; onNavigate: (section: InspectionSection) => void }) {

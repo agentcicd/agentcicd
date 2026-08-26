@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -70,18 +71,23 @@ def _run_spark(spec: LocalRunSpec, *, run_dir: Path) -> RunResult:
     _configure_local_spark_python()
     progress_dir = run_dir / "progress"
     progress_file = progress_dir / "progress.jsonl"
-    with local_fixture_runtime(spec) as fixture_runtime:
-        config = EngineRunConfig(
-            working_dir=str(run_dir),
-            table_format=spec.config.run.table_format,
-            include_cells=spec.config.run.include_cells,
-            progress_file=str(progress_file),
-            input_values=spec.inputs.input_values,
-            max_parallel_stages=spec.config.run.max_parallel_stages,
-            debug=spec.config.debug.to_engine_debug(),
-            registered_functions=fixture_runtime.registered_functions,
-        )
-        run_recipe(spec.recipe_sql, config, registered_functions=fixture_runtime.registered_functions)
+    previous_sigint_handler = _current_sigint_handler()
+    try:
+        with local_fixture_runtime(spec) as fixture_runtime:
+            config = EngineRunConfig(
+                working_dir=str(run_dir),
+                table_format=spec.config.run.table_format,
+                include_cells=spec.config.run.include_cells,
+                progress_file=str(progress_file),
+                input_values=spec.inputs.input_values,
+                max_parallel_stages=spec.config.run.max_parallel_stages,
+                wait_for_annotations=True,
+                debug=spec.config.debug.to_engine_debug(),
+                registered_functions=fixture_runtime.registered_functions,
+            )
+            run_recipe(spec.recipe_sql, config, registered_functions=fixture_runtime.registered_functions)
+    finally:
+        _restore_sigint_handler(previous_sigint_handler)
     return RunResult(
         backend=BackendName.SPARK,
         run_dir=run_dir,
@@ -102,3 +108,19 @@ def _new_run_dir(root: Path) -> Path:
 def _configure_local_spark_python() -> None:
     """Run local Spark workers with the environment that installed AgentCICD."""
     os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+
+
+def _current_sigint_handler() -> object | None:
+    try:
+        return signal.getsignal(signal.SIGINT)
+    except ValueError:
+        return None
+
+
+def _restore_sigint_handler(handler: object | None) -> None:
+    if handler is None:
+        return
+    try:
+        signal.signal(signal.SIGINT, handler)
+    except ValueError:
+        return

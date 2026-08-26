@@ -81,6 +81,17 @@ def _handler_for(store: LocalInspectionStore) -> type[BaseHTTPRequestHandler]:
             except RuntimeError as exc:
                 self._send_json(HTTPStatus.CONFLICT, {"detail": str(exc)})
 
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            try:
+                self._handle_post(unquote(parsed.path), self._read_json_body())
+            except KeyError:
+                self._send_json(HTTPStatus.NOT_FOUND, {"detail": "Inspection resource not found"})
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"detail": str(exc)})
+            except RuntimeError as exc:
+                self._send_json(HTTPStatus.CONFLICT, {"detail": str(exc)})
+
         def log_message(self, format: str, *args: object) -> None:  # noqa: A003
             return
 
@@ -91,7 +102,24 @@ def _handler_for(store: LocalInspectionStore) -> type[BaseHTTPRequestHandler]:
             if path.startswith("/inspection/v1/"):
                 self._handle_api(path.removeprefix("/inspection/v1"), query)
                 return
+            if path == "/runs" or (path.startswith("/runs/") and not path.endswith("/")):
+                self._handle_public_run_get(path.removeprefix("/runs"), query)
+                return
+            if path == "/recipes" or path.startswith("/recipes/"):
+                self._handle_public_recipe_get(path.removeprefix("/recipes"))
+                return
             self._handle_viewer(path)
+
+        def _handle_post(self, path: str, payload: dict[str, Any]) -> None:
+            if path.startswith("/inspection/v1/"):
+                segments = [segment for segment in path.removeprefix("/inspection/v1").split("/") if segment]
+                if segments[:1] == ["runs"] and len(segments) >= 2:
+                    self._handle_run_post_api(segments[1], segments[2:], payload)
+                    return
+            if path == "/recipes/analysis":
+                self._send_json(HTTPStatus.OK, store.recipe_analysis(payload))
+                return
+            raise KeyError(path)
 
         def _handle_api(self, path: str, query: dict[str, list[str]]) -> None:
             segments = [segment for segment in path.split("/") if segment]
@@ -137,6 +165,12 @@ def _handler_for(store: LocalInspectionStore) -> type[BaseHTTPRequestHandler]:
             if tail == ["progress"]:
                 self._send_json(HTTPStatus.OK, store.progress(run_id))
                 return
+            if tail == ["logs"]:
+                self._send_json(HTTPStatus.OK, store.logs(run_id))
+                return
+            if tail == ["graph"]:
+                self._send_json(HTTPStatus.OK, store.graph(run_id))
+                return
             if tail == ["report"]:
                 self._send_json(HTTPStatus.OK, store.report(run_id))
                 return
@@ -172,6 +206,69 @@ def _handler_for(store: LocalInspectionStore) -> type[BaseHTTPRequestHandler]:
                 content_type, data = store.artifact(run_id, "/".join(tail[1:]))
                 self._send_bytes(HTTPStatus.OK, content_type, data)
                 return
+            if tail == ["annotations", "requests"]:
+                self._send_json(HTTPStatus.OK, store.annotation_requests(run_id))
+                return
+            if tail[:2] == ["annotations", "requests"] and len(tail) >= 3:
+                request_id = tail[2]
+                if len(tail) == 3:
+                    self._send_json(HTTPStatus.OK, store.annotation_request(run_id, request_id))
+                    return
+                if tail[3:] == ["tasks"]:
+                    self._send_json(HTTPStatus.OK, store.annotation_tasks(run_id, request_id))
+                    return
+                if tail[3:4] == ["tasks"] and len(tail) == 5:
+                    self._send_json(HTTPStatus.OK, store.annotation_task(run_id, request_id, tail[4]))
+                    return
+            if tail == ["runtime", "pools"]:
+                self._send_json(HTTPStatus.OK, store.runtime_pools(run_id))
+                return
+            if tail == ["runtime", "rate-limits"]:
+                self._send_json(HTTPStatus.OK, store.runtime_rate_limits(run_id))
+                return
+            raise KeyError("/".join(tail))
+
+        def _handle_public_run_get(self, path: str, query: dict[str, list[str]]) -> None:
+            tail = [segment for segment in path.split("/") if segment]
+            if not tail:
+                runs = store.public_runs()
+                status_filter = (query.get("status") or [None])[0]
+                if status_filter:
+                    runs = [item for item in runs if item.get("status") == status_filter]
+                self._send_json(HTTPStatus.OK, runs)
+                return
+            run_id = tail[0]
+            if len(tail) == 1:
+                self._send_json(HTTPStatus.OK, store.public_run(run_id))
+                return
+            if tail[1:] == ["progress"]:
+                self._send_json(HTTPStatus.OK, store.public_progress(run_id))
+                return
+            raise KeyError("/".join(tail))
+
+        def _handle_public_recipe_get(self, path: str) -> None:
+            tail = [segment for segment in path.split("/") if segment]
+            if not tail:
+                self._send_json(HTTPStatus.OK, store.public_recipes())
+                return
+            recipe_id = tail[0]
+            if len(tail) == 1:
+                self._send_json(HTTPStatus.OK, store.public_recipe(recipe_id))
+                return
+            if tail[1:] == ["segments"]:
+                self._send_json(HTTPStatus.OK, store.recipe_segments(recipe_id))
+                return
+            raise KeyError("/".join(tail))
+
+        def _handle_run_post_api(self, run_id: str, tail: list[str], payload: dict[str, Any]) -> None:
+            if tail[:2] == ["annotations", "requests"] and len(tail) >= 3:
+                request_id = tail[2]
+                if tail[3:4] == ["tasks"] and len(tail) == 6 and tail[5] == "reviews":
+                    self._send_json(HTTPStatus.OK, store.submit_annotation_review(run_id, request_id, tail[4], payload))
+                    return
+                if tail[3:] == ["finalize"]:
+                    self._send_json(HTTPStatus.OK, store.finalize_annotation_request(run_id, request_id))
+                    return
             raise KeyError("/".join(tail))
 
         def _handle_viewer(self, path: str) -> None:
@@ -192,6 +289,18 @@ def _handler_for(store: LocalInspectionStore) -> type[BaseHTTPRequestHandler]:
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
+
+        def _read_json_body(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length") or "0")
+            if length <= 0:
+                return {}
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            except json.JSONDecodeError as exc:
+                raise ValueError("Request body must be valid JSON") from exc
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            return payload
 
     return InspectionRequestHandler
 

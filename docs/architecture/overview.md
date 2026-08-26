@@ -1,4 +1,4 @@
-# AgentCICD SQL Architecture
+# Architecture Overview
 
 `agentcicd.sql` turns recipe SQL into executable evaluation stages. The intended flow is one-way:
 
