@@ -77,19 +77,28 @@ def test_local_inspection_server_serves_protocol_routes_and_rejects_traversal(tm
 
         assert "AgentCICD inspection" in viewer_html
         assert "import" in asset_body
+        assert project_payload["schema_version"] == "inspection-v1"
+        assert graph_payload["schema_version"] == "inspection-v1"
         assert project_payload["resources"]["runs"][0]["id"] == run_dir.name
         assert graph_payload["nodes"]
+        assert {"from_id": "input:name", "to_id": "table:result", "relation": "uses_input"} in graph_payload["edges"]
         assert progress_payload["completed_steps"] == 1
         assert any(item["path"] == "logs/run.log" for item in logs_payload["files"])
         assert "sk-local-secret" not in logs_payload["text"]
         assert report_payload["issues"] == []
         assert public_runs_payload[0]["id"] == run_dir.name
+        assert "schema_version" not in public_runs_payload[0]
         assert public_run_payload["payload"]["source"] == "local"
+        assert public_run_payload["recipe_id"] == "recipe.sql"
+        assert public_run_payload["aisystem_environment_bindings"] == {}
         assert "schema_version" not in public_progress_payload
         assert public_progress_payload["steps"][0]["created_at"]
         assert public_recipes_payload["items"][0]["id"] == "recipe.sql"
+        assert "schema_version" not in public_recipes_payload
         assert any(item["id"] == "table:result" for item in recipe_segments_payload["nodes"])
+        assert recipe_segments_payload["schema_version"] == "recipe_segmentation.v1"
         assert {"from": "input:name", "to": "table:result", "relation": "uses_input"} in recipe_analysis_payload["graph"]
+        assert recipe_analysis_payload["schema_version"] == "recipe_analysis.v2"
 
         with pytest.raises(HTTPError) as exc_info:
             urlopen(f"{server.base_url}/inspection/v1/runs/{run_dir.name}/artifacts/%2E%2E%2Frecipe.sql")
