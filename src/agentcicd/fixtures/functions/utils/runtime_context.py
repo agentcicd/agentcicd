@@ -517,7 +517,17 @@ def resolve_litellm_payload_from_aisystem(
         options=options,
     )
     if not aisystem:
-        raise ValueError(f"AI system not found: {aisystem_id}")
+        direct_model = str(aisystem_id or "").strip()
+        if not direct_model or direct_model.startswith("aisystem."):
+            raise ValueError(f"AI system not found: {aisystem_id}")
+        canonical_model = _canonicalize_litellm_model(direct_model)
+        selected_secret = _resolve_available_secret_id(secret_id_or_key, options) if secret_id_or_key else None
+        if selected_secret is None and _provider_uses_api_key(_infer_model_provider(canonical_model)):
+            raise ValueError(f"AI system '{aisystem_id}' requires an org secret binding or direct secret_id")
+        return {
+            "model": canonical_model,
+            "secret_id": selected_secret,
+        }
 
     model = aisystem.get("target")
     if not isinstance(model, str) or not model.strip():

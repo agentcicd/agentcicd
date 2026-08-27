@@ -21,10 +21,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.10.0",
     "clsx": "2.1.1",
     "dagre": "^0.8.5",
     "lucide-react": "0.487.0",
+    "monaco-editor": "^0.52.2",
     "recharts": "2.15.2",
     "tailwind-merge": "3.2.0"
   },

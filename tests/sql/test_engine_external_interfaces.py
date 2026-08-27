@@ -56,6 +56,26 @@ def _start_json_server(response_payload: dict) -> tuple[_ReusableTCPServer, thre
     return server, thread, f"http://{host}:{port}"
 
 
+def _start_json_result_server(result_payload: dict) -> tuple[_ReusableTCPServer, threading.Thread, str]:
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            encoded = json.dumps({"result": result_payload}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format, *args):  # noqa: A003
+            return
+
+    server = _ReusableTCPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, thread, f"http://{host}:{port}"
+
+
 def _start_invalid_json_server(
     *,
     method: str = "POST",
@@ -235,6 +255,58 @@ def test_new_engine_remote_runtime_function_calls_http_service(local_spark, tmp_
             assert embedding["metadata"]["errors"] == []
             assert isinstance(embedding["metadata"]["latency_ms"], int)
             assert "fixture_trace" in embedding["metadata"].asDict()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_remote_runtime_json_result_survives_materialized_stage_variant_access(local_spark, tmp_path: Path):
+    raw_path = tmp_path / "raw_variant_input"
+    local_spark.createDataFrame([("case-1",)], ["case_id"]).write.mode("overwrite").parquet(str(raw_path))
+    server, thread, base_url = _start_json_result_server(
+        {"choices": [{"message": {"content": "Final answer: 42"}}]}
+    )
+    try:
+        script = f"""
+        LOAD raw FROM '{raw_path.as_posix()}'
+        WITH FORMAT='parquet';
+
+        CREATE BATCH TABLE model_responses
+        SELECT remote.chat(case_id = case_id) AS response_raw
+        FROM raw;
+
+        CREATE BATCH TABLE scored
+        SELECT CAST(try_variant_get(response_raw, '$.choices[0].message.content') AS STRING) AS response_text
+        FROM model_responses;
+        """
+
+        backend = SparkExecutionBackend(local_spark, working_dir=str(tmp_path))
+        EngineEntrypoint(
+            script,
+            registered_functions=[
+                {
+                    "name": "remote.chat",
+                    "type": "remote",
+                    "call_name": "remote.chat",
+                    "runtime_alias": "remote_chat",
+                    "base_url": base_url,
+                    "invoke_path": "/invoke",
+                    "signature": {
+                        "parameters": [
+                            {"name": "case_id", "type_sql": "STRING", "has_default": False},
+                        ]
+                    },
+                    "return_type_sql": "VARIANT",
+                    "returns": {"type": "Variant"},
+                }
+            ],
+        ).execute(backend, include_cells=True)
+
+        response_rows = local_spark.read.parquet(str(tmp_path / "tables" / "model_responses")).collect()
+        assert response_rows[0]["response_raw"]["value"].toJson() == '{"choices":[{"message":{"content":"Final answer: 42"}}]}'
+
+        scored_rows = local_spark.read.parquet(str(tmp_path / "tables" / "scored")).collect()
+        assert scored_rows[0]["response_text"]["value"] == "Final answer: 42"
     finally:
         server.shutdown()
         server.server_close()

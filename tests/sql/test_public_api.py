@@ -159,6 +159,38 @@ def test_validate_recipe_rejects_builtin_manifest_conflict() -> None:
         )
 
 
+def test_validate_recipe_accepts_generated_builtin_runtime_overlay() -> None:
+    api.validate_recipe(
+        """
+        CREATE BATCH TABLE evaluated
+        SELECT aisystems.llm.chat(
+          aisystem_id = 'openai/gpt-4.1-mini',
+          messages = parse_json('[]')
+        ) AS response_raw;
+        """,
+        registered_functions=[
+            {
+                "id": "builtin.aisystems.llm.chat",
+                "name": "aisystems.llm.chat",
+                "type": "remote",
+                "call_name": "aisystems.llm.chat",
+                "runtime_alias": "aisystems_llm_chat",
+                "base_url": "http://127.0.0.1:10000",
+                "invoke_path": "/invoke/chat",
+                "entrypoint_name": "chat",
+                "return_type_sql": "VARIANT",
+                "pool_kind": "service",
+                "signature": {
+                    "parameters": [
+                        {"name": "aisystem_id", "type_sql": "STRING"},
+                        {"name": "messages", "type_sql": "VARIANT"},
+                    ]
+                },
+            }
+        ],
+    )
+
+
 def test_run_recipe_plumbs_manifest_functions_into_engine_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
     expected_report = SimpleNamespace(events=[])

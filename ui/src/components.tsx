@@ -4,7 +4,7 @@ import type { InspectionActions, InspectionClient, InspectionResource, JsonValue
 import { ServiceCard, StatusBadge } from "./service-primitives";
 import { ServiceDataTable, ServiceReportContent, ServiceTraceWaterfall } from "./service-renderers";
 import { InspectionShell, type InspectionSection } from "./inspection-shell";
-import { CommonDetailsComponent, CommonListComponent, ResourceDetailHeader, ResourceField, ResourceReadonlyTextarea, ResourceSearchInput, ResourceTable, type ResourceTableColumn } from "./resource-workspace";
+import { CommonDetailsComponent, CommonListComponent, ResourceDetailHeader, ResourceField, ResourceReadonlyTextarea, ResourceTable, type ResourceTableColumn } from "./resource-workspace";
 
 function useLoaded<T>(load: () => Promise<T>, dependencies: readonly unknown[], intervalMs?: number): { value: T | null; error: string | null } {
   const [value, setValue] = useState<T | null>(null);
@@ -94,7 +94,6 @@ type ProjectResourceKind = Exclude<InspectionSection, "overview">;
 type ProjectResourceRow = InspectionResource & { kind: ProjectResourceKind; source?: string; value?: JsonValue };
 
 function ProjectResourceWorkspace({ client, projectId, project, section, onSelectRun }: { client: InspectionClient; projectId: string; project: ProjectInspection; section: ProjectResourceKind; onSelectRun?: (runId: string) => void }) {
-  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rows = useMemo((): ProjectResourceRow[] => {
     if (section === "recipes") return project.resources.recipes.map((item) => ({ ...item, kind: section }));
@@ -103,14 +102,13 @@ function ProjectResourceWorkspace({ client, projectId, project, section, onSelec
     const entries = section === "inputs" ? project.resources.inputs : project.resources.secrets;
     return entries.map((item, index) => ({ id: `${section}:${text(item.name) !== "-" ? text(item.name) : index}`, name: text(item.name) !== "-" ? text(item.name) : text(item.reference), status: text(item.configured) === "true" ? "configured" : "available", details: item, kind: section, source: text(item.path), value: item.value_preview }));
   }, [project, section]);
-  const filteredRows = rows.filter((row) => `${row.name} ${row.status}`.toLowerCase().includes(query.toLowerCase()));
-  const selected = filteredRows.find((row) => row.id === selectedId) ?? null;
+  const selected = rows.find((row) => row.id === selectedId) ?? null;
   const title = section[0].toUpperCase() + section.slice(1);
   const columns: ResourceTableColumn<ProjectResourceRow>[] = [
     { id: "name", header: "Name", cell: (row) => <span className="font-medium text-slate-900">{row.name}</span> },
-    { id: "status", header: "Status", cell: (row) => <Status value={row.status} />, width: "9rem", align: "right" },
   ];
-  return <div className="grid min-h-[calc(100vh-10rem)] gap-6 xl:grid-cols-[minmax(20rem,0.8fr)_minmax(0,1.7fr)]"><CommonListComponent search={<ResourceSearchInput placeholder={`Search ${title.toLowerCase()}`} value={query} onChange={setQuery} />} hasItems={filteredRows.length > 0} emptyState={<div className="p-6 text-sm text-slate-500">No {title.toLowerCase()} found.</div>}><ResourceTable rows={filteredRows} columns={columns} getRowId={(row) => row.id} selectedRowId={selectedId} onRowOpen={(row) => { setSelectedId(row.id); if (row.kind === "runs") onSelectRun?.(row.id); }} mobileTitle={(row) => row.name} mobileMeta={(row) => <Status value={row.status} />} /></CommonListComponent><ProjectResourceDetail client={client} projectId={projectId} row={selected} /></div>;
+  if (!rows.length) return <div className="flex min-h-[calc(100vh-10rem)] items-center justify-center text-sm text-slate-500">No {title.toLowerCase()} found.</div>;
+  return <div className={`grid min-h-[calc(100vh-10rem)] gap-6 ${selected ? "xl:grid-cols-[minmax(20rem,0.8fr)_minmax(0,1.7fr)]" : ""}`}><CommonListComponent search={<div className="text-sm font-medium text-slate-900">{title}</div>} hasItems={rows.length > 0}><ResourceTable rows={rows} columns={columns} getRowId={(row) => row.id} selectedRowId={selectedId} onRowOpen={(row) => { setSelectedId(row.id); if (row.kind === "runs") onSelectRun?.(row.id); }} mobileTitle={(row) => row.name} /></CommonListComponent>{selected ? <ProjectResourceDetail client={client} projectId={projectId} row={selected} /> : null}</div>;
 }
 
 function ProjectResourceDetail({ client, projectId, row }: { client: InspectionClient; projectId: string; row: ProjectResourceRow | null }) {
@@ -118,10 +116,10 @@ function ProjectResourceDetail({ client, projectId, row }: { client: InspectionC
     if (!row || row.kind === "runs" || row.kind === "inputs" || row.kind === "secrets") return null;
     return row.kind === "recipes" ? client.recipe(projectId, row.id) : client.fixture(projectId, row.id);
   }, [client, projectId, row?.id, row?.kind]);
-  if (!row) return <CommonDetailsComponent title="Select a resource" subtitle="Choose an item from the list to inspect its configuration and source."><ResourceDetailHeader title="Select a resource" subtitle="Choose an item from the list to inspect its configuration and source." /></CommonDetailsComponent>;
+  if (!row) return null;
   const source = result.value && "recipe" in result.value ? result.value.recipe.source_text : result.value && "fixture" in result.value ? result.value.fixture.source_text : undefined;
   const details = row.details ?? {};
-  return <CommonDetailsComponent title={row.name} subtitle={row.kind === "secrets" ? "Secret reference" : row.kind} actions={<Status value={row.status} />}><ResourceDetailHeader title={row.name} subtitle={row.kind === "secrets" ? "Secret reference" : row.kind} /><div className="space-y-6">{result.error ? <ErrorState message={result.error} /> : null}<div className="grid gap-4 sm:grid-cols-2">{Object.entries(details).map(([key, value]) => <ResourceField key={key} label={key.replaceAll("_", " ")}><p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{text(value)}</p></ResourceField>)}</div>{source ? <ResourceField label="Source"><ResourceReadonlyTextarea value={source} rows={18} /></ResourceField> : null}</div></CommonDetailsComponent>;
+  return <CommonDetailsComponent title={row.name} subtitle={row.kind === "secrets" ? "Secret reference" : row.kind}><ResourceDetailHeader title={row.name} subtitle={row.kind === "secrets" ? "Secret reference" : row.kind} /><div className="space-y-6">{result.error ? <ErrorState message={result.error} /> : null}<div className="grid gap-4 sm:grid-cols-2">{Object.entries(details).map(([key, value]) => <ResourceField key={key} label={key.replaceAll("_", " ")}><p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{text(value)}</p></ResourceField>)}</div>{source ? <ResourceField label="Source"><ResourceReadonlyTextarea value={source} rows={18} /></ResourceField> : null}</div></CommonDetailsComponent>;
 }
 
 export function RunSummary({ run }: { run: RunInspection }) {
@@ -137,7 +135,7 @@ export function ExecutionTimeline({ client, runId }: { client: InspectionClient;
 }
 
 export function ChartView({ charts }: { charts: Array<Record<string, JsonValue>> }) {
-  if (!charts.length) return <p className="ac-muted">No charts were generated.</p>;
+  if (!charts.length) return null;
   return <div className="ac-list">{charts.map((chart, index) => <pre key={index}>{JSON.stringify(chart, null, 2)}</pre>)}</div>;
 }
 

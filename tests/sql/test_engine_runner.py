@@ -1,6 +1,7 @@
 import json
 
 from agentcicd.sql.engine.plan import ExecutionPlanStep
+from agentcicd.sql.engine import runner as engine_runner
 from agentcicd.sql.engine.runner import (
     EngineRunConfig,
     _archive_working_dir_to_object_storage,
@@ -10,6 +11,7 @@ from agentcicd.sql.engine.runner import (
     _write_plan_artifacts,
 )
 from agentcicd.sql.engine.runtime import ExecutionEvent, ExecutionReport
+from agentcicd.sql.ir.functions import RegisteredFunctionParameterSpec, RegisteredFunctionSpec
 
 
 def test_load_registered_functions_from_context_file(tmp_path, monkeypatch):
@@ -177,6 +179,64 @@ def test_write_plan_artifacts_persists_manifest_and_sql_files(tmp_path):
     assert manifest[0]["dependencies"] == ["table:raw"]
     sql_artifact = (tmp_path / "logs" / "transpiled" / "00_create_batch_table_out.sql").read_text(encoding="utf-8")
     assert "SELECT 1 AS x" in sql_artifact
+
+
+def test_run_script_executes_default_injected_fixture_pool_plan(tmp_path, monkeypatch):
+    created_sql: list[str] = []
+
+    class _Spark:
+        class _Conf:
+            def set(self, *_args):
+                return None
+
+        conf = _Conf()
+
+        def stop(self):
+            return None
+
+    class _Backend:
+        def __init__(self, *_args, **_kwargs):
+            return None
+
+        def declare_variable(self, _name, _sql):
+            return None
+
+        def register_sql_function(self, _name, _definition):
+            return None
+
+        def register_runtime_function(self, _name, _definition):
+            return None
+
+        def create_batch_table(self, _name, sql, *, options=None):
+            created_sql.append(sql)
+
+    monkeypatch.setenv("AGENTCICD_COMPLETED_BATCH_TABLES", "prepared")
+    monkeypatch.setattr(engine_runner, "build_spark_session", lambda **_kwargs: _Spark())
+    monkeypatch.setattr(engine_runner, "SparkExecutionBackend", _Backend)
+    fixture = RegisteredFunctionSpec(
+        name="svc.score",
+        kind="remote",
+        runtime_alias="svc_score",
+        signature=(
+            RegisteredFunctionParameterSpec(name="text", type_sql="STRING"),
+            RegisteredFunctionParameterSpec(name="pool", type_sql="POOL", has_default=True),
+        ),
+        metadata={
+            "base_url": "http://fixture-runtime",
+            "invoke_path": "/invoke/score",
+            "pool_kind": "service",
+            "return_type_sql": "STRING",
+        },
+    )
+
+    engine_runner.run_script_with_new_engine(
+        "CREATE BATCH TABLE out SELECT svc.score(text = text) AS value FROM prepared;",
+        EngineRunConfig(working_dir=str(tmp_path), registered_functions=[fixture]),
+    )
+
+    assert created_sql
+    assert "service_pool.value" in created_sql[0]
+    assert "AGENTCICD_WRAPPED_SVC_SCORE" in created_sql[0]
 
 
 def test_archive_working_dir_includes_published_datasets(tmp_path, monkeypatch):

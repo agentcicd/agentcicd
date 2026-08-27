@@ -216,9 +216,11 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
     def logs(self, run_id: str) -> dict[str, Any]:
         reference = self._run(run_id)
         logs_dir = reference.path / "logs"
+        debug_dir = reference.path / "debug"
         files: list[dict[str, Any]] = []
         text_parts: list[str] = []
-        for path in sorted(logs_dir.rglob("*")) if logs_dir.is_dir() else []:
+        log_files = self._safe_log_artifact_files(reference, (logs_dir, debug_dir))
+        for path in log_files:
             if not path.is_file() or path.suffix.lower() not in SAFE_ARTIFACT_SUFFIXES:
                 continue
             relative = path.relative_to(reference.path).as_posix()
@@ -231,13 +233,40 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
             )
         preferred = [
             logs_dir / "run.log",
+            logs_dir / "debug.log",
             logs_dir / "app.log",
-            logs_dir / "engine_execution_report.json",
+            logs_dir / "app.jsonl",
         ]
-        for path in preferred:
-            if path.is_file():
-                text_parts.append(f"== {path.name} ==\n{self._replace_secret_values(path.read_text(encoding='utf-8'))}")
+        text_files = self._ordered_log_text_files(reference, preferred, log_files)
+        for path in text_files:
+            relative = path.relative_to(reference.path).as_posix()
+            text_parts.append(f"== {relative} ==\n{self._replace_secret_values(path.read_text(encoding='utf-8'))}")
         return envelope({"run_id": reference.run_id, "files": files, "text": "\n\n".join(text_parts)})
+
+    def _safe_log_artifact_files(self, reference: LocalRunReference, roots: Iterable[Path]) -> list[Path]:
+        files: list[Path] = []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*")):
+                if path.is_file() and path.suffix.lower() in {".log", ".jsonl", ".txt"} and self._is_relative_to(path, reference.path):
+                    files.append(path)
+        return files
+
+    def _ordered_log_text_files(self, reference: LocalRunReference, preferred: Iterable[Path], files: Iterable[Path]) -> list[Path]:
+        ordered: list[Path] = []
+        seen: set[Path] = set()
+        for path in [*preferred, *files]:
+            if not path.is_file() or path.suffix.lower() not in SAFE_ARTIFACT_SUFFIXES:
+                continue
+            if not self._is_relative_to(path, reference.path):
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            ordered.append(path)
+        return ordered
 
     def graph(self, run_id: str) -> dict[str, Any]:
         reference = self._run(run_id)
@@ -321,7 +350,7 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
         normalized_size = min(max(1, page_size), MAX_PAGE_SIZE)
         rows = self._read_parquet_rows(table_dir, offset=(normalized_page - 1) * normalized_size, limit=normalized_size + 1)
         has_more = len(rows) > normalized_size
-        returned_rows = rows[:normalized_size]
+        returned_rows = [self._present_output_row(row) for row in rows[:normalized_size]]
         columns = sorted({key for row in returned_rows for key in row})
         return envelope(
             {
@@ -337,6 +366,14 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
                 "format": "parquet",
             }
         )
+
+    @staticmethod
+    def _present_output_row(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in row.items()
+            if key != "__agentcicd_row_id"
+        }
 
     def traces(self, run_id: str) -> dict[str, Any]:
         reference = self._run(run_id)
@@ -600,6 +637,14 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
         return candidate
 
     @staticmethod
+    def _is_relative_to(candidate: Path, root: Path) -> bool:
+        try:
+            candidate.resolve().relative_to(root.resolve())
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
         if not path.is_file():
             return {}
@@ -663,6 +708,7 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
             ".html": "text/html; charset=utf-8",
             ".json": "application/json; charset=utf-8",
             ".jsonl": "application/x-ndjson; charset=utf-8",
+            ".log": "text/plain; charset=utf-8",
             ".md": "text/markdown; charset=utf-8",
             ".sql": "text/plain; charset=utf-8",
             ".txt": "text/plain; charset=utf-8",

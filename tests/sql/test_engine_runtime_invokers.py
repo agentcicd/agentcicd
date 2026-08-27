@@ -27,6 +27,7 @@ from agentcicd.sql.engine.runtime_functions import (
     LocalFixtureRuntimeInvoker,
     SparkUdfRuntimeInvoker,
     SparkWorkerPackageDistributor,
+    StubRuntimeFunctionInvoker,
 )
 from agentcicd.sql.ir.functions import FunctionParameterIR
 from agentcicd.sql.udf_registry import clear_registered_udfs, register_udf
@@ -144,6 +145,17 @@ def test_spark_udf_runtime_invoker_defers_when_builtin_aisystems_chat_has_remote
     )
 
     assert invoker.can_handle(definition) is False
+
+
+def test_stub_runtime_invoker_refuses_concrete_function_runner_definition():
+    definition = SimpleNamespace(
+        kind="python",
+        canonical_name="aisystems.llm.chat",
+        runtime_alias="aisystems_llm_chat",
+        metadata={"execution_runtime": "function_runner", "pool_kind": "service"},
+    )
+
+    assert StubRuntimeFunctionInvoker().can_handle(definition) is False
 
 
 def test_spark_udf_runtime_invoker_does_not_claim_other_remote_functions():

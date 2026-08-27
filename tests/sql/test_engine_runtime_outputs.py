@@ -60,6 +60,37 @@ def test_runtime_outputs_case_where_order_limit(local_spark, tmp_path: Path):
     assert rows[0]["safe_name"]["metadata"]["errors"] == []
 
 
+def test_runtime_outputs_declared_int_input_limit_unwraps_value(local_spark, tmp_path: Path):
+    source_path = tmp_path / "raw_limit_input"
+    local_spark.createDataFrame(
+        [
+            (1, "alice"),
+            (2, "bob"),
+            (3, "carol"),
+        ],
+        ["id", "name"],
+    ).write.mode("overwrite").parquet(str(source_path))
+
+    script = f"""
+    DECLARE INPUT sample_size INT DEFAULT 2;
+
+    LOAD raw FROM '{source_path.as_posix()}'
+    WITH FORMAT='parquet';
+
+    CREATE BATCH TABLE out
+    SELECT id, name
+    FROM raw
+    ORDER BY id
+    LIMIT sample_size;
+    """
+
+    backend = SparkExecutionBackend(local_spark, working_dir=str(tmp_path))
+    EngineEntrypoint(script, input_values={"sample_size": "2"}).execute(backend, include_cells=True)
+
+    rows = local_spark.read.parquet(str(tmp_path / "tables" / "out")).collect()
+    assert [row["id"]["value"] for row in rows] == [1, 2]
+
+
 def test_runtime_outputs_select_star_through_cell_lowered_cte(local_spark, tmp_path: Path):
     source_path = tmp_path / "star_raw"
     local_spark.createDataFrame(

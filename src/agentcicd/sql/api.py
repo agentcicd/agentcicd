@@ -315,6 +315,8 @@ def _validate_registered_function_names(
         for label, value in _registered_function_keys(spec):
             builtin_name = builtin_keys.get(value)
             if builtin_name is not None:
+                if _is_builtin_runtime_overlay(spec, builtin_name):
+                    continue
                 raise AgentCICDEvalSqlApiError(
                     f"Registered function {label} '{value}' conflicts with built-in fixture '{builtin_name}'"
                 )
@@ -332,3 +334,10 @@ def _registered_function_keys(spec: RegisteredFunctionSpec) -> list[tuple[str, s
     if runtime_alias:
         keys.append(("runtime_alias", runtime_alias))
     return keys
+
+
+def _is_builtin_runtime_overlay(spec: RegisteredFunctionSpec, builtin_name: str) -> bool:
+    spec_name = str(spec.name or "").strip()
+    if spec_name.lower() != builtin_name.lower():
+        return False
+    return str(spec.metadata.get("id") or "").strip().lower() == f"builtin.{builtin_name}".lower()

@@ -143,9 +143,9 @@ def test_cell_lowering_casts_qualified_variant_path_before_safe_parse_json():
         external_tables=["raw_judgments", "deterministic_checks"],
     ).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(j.judge_response.value, '$.choices[0].message.content')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(j.judge_response.value AS STRING)), '$.choices[0].message.content')" in lowered
     assert (
-        "TRY_PARSE_JSON(CAST(TRY_CAST(TRY_VARIANT_GET(j.judge_response.value, '$.choices[0].message.content') "
+        "TRY_PARSE_JSON(CAST(TRY_CAST(TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(j.judge_response.value AS STRING)), '$.choices[0].message.content') "
         "AS STRING) AS STRING))"
     ) in lowered
     assert "j.judge_response.value['choices']" not in lowered
@@ -203,8 +203,20 @@ def test_cell_lowering_qualified_variant_path_without_parse_json():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.result.final_text')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.result.final_text')" in lowered
     assert "p.payload.value['result']" not in lowered
+
+
+def test_cell_json_access_reparses_string_typed_materialized_cells():
+    script = """
+    CREATE BATCH TABLE extracted
+    SELECT CAST(try_variant_get(response_raw, '$.choices[0].message.content') AS STRING) AS response_text
+    FROM model_responses;
+    """
+
+    lowered = EngineEntrypoint(script, external_tables=["model_responses"]).lower_script(include_cells=True)[0]
+
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(response_raw.value AS STRING)), '$.choices[0].message.content')" in lowered
 
 
 def test_cell_lowering_does_not_treat_same_named_non_variant_alias_as_variant():
@@ -235,7 +247,7 @@ def test_cell_lowering_does_not_treat_same_named_non_variant_alias_as_variant():
         external_tables=["raw_payloads", "raw_strings"],
     ).lower_script(include_cells=True)[2]
 
-    assert "TRY_VARIANT_GET(l.payload.value, '$.result.final_text')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(l.payload.value AS STRING)), '$.result.final_text')" in lowered
     assert "r.payload.value['plain']" in lowered
     assert "TRY_VARIANT_GET(r.payload.value" not in lowered
 
@@ -270,7 +282,7 @@ def test_cell_lowering_qualified_runtime_variant_path():
         ],
     ).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(j.judge_response.value, '$.choices[0].message.content')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(j.judge_response.value AS STRING)), '$.choices[0].message.content')" in lowered
     assert "j.judge_response.value['choices']" not in lowered
 
 
@@ -328,10 +340,10 @@ def test_cell_lowering_handles_mixed_scalar_casts_from_qualified_variant():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.numbers.score')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.numbers.count')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.flags.passed')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.labels[0]')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.numbers.score')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.numbers.count')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.flags.passed')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.labels[0]')" in lowered
     assert "TRY_CAST(" in lowered
     _assert_no_native_variant_brackets(lowered, "p.payload.value")
 
@@ -358,9 +370,9 @@ def test_cell_lowering_handles_variant_paths_in_case_and_boolean_predicates():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.flags.blocked')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.metrics.score')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.flags.eligible')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.flags.blocked')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.metrics.score')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.flags.eligible')" in lowered
     assert ">= 0.8" in lowered
     _assert_no_native_variant_brackets(lowered, "p.payload.value")
 
@@ -383,8 +395,8 @@ def test_cell_lowering_handles_coalesce_and_arithmetic_over_variant_casts():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.scores.judge')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.scores.deterministic')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.scores.judge')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.scores.deterministic')" in lowered
     assert "* 0.7" in lowered
     assert "* 0.3" in lowered
     _assert_no_native_variant_brackets(lowered, "p.payload.value")
@@ -409,9 +421,9 @@ def test_cell_lowering_handles_variant_arrays_and_size():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.events')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.events[1].name')" in lowered
-    assert "TRY_VARIANT_GET(p.payload.value, '$.events[0].scores[1]')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.events')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.events[1].name')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.events[0].scores[1]')" in lowered
     _assert_no_native_variant_brackets(lowered, "p.payload.value")
 
 
@@ -432,7 +444,7 @@ def test_cell_lowering_handles_negative_variant_array_index_in_wrapped_mode():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.events[-1].name')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.events[-1].name')" in lowered
     _assert_no_native_variant_brackets(lowered, "p.payload.value")
 
 
@@ -453,7 +465,7 @@ def test_cell_lowering_handles_aggregate_err_or_over_qualified_variant_scores():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(p.payload.value, '$.scores.overall')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(p.payload.value AS STRING)), '$.scores.overall')" in lowered
     assert "AVG(" in lowered
     assert "CASE WHEN SIZE(" in lowered
     _assert_no_native_variant_brackets(lowered, "p.payload.value")
@@ -481,8 +493,8 @@ def test_cell_lowering_handles_variant_access_through_cte_alias():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_payloads"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(payload.value, '$.flags.eligible')" in lowered
-    assert "TRY_VARIANT_GET(f.payload.value, '$.result.answer')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(payload.value AS STRING)), '$.flags.eligible')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(f.payload.value AS STRING)), '$.result.answer')" in lowered
     _assert_no_native_variant_brackets(lowered, "payload.value", "f.payload.value")
 
 
@@ -506,8 +518,11 @@ def test_cell_lowering_handles_explicit_try_variant_get_then_parse_json():
 
     lowered = EngineEntrypoint(script, external_tables=["raw_judgments"]).lower_script(include_cells=True)[1]
 
-    assert "TRY_VARIANT_GET(j.judge_response.value, '$.choices[0].message.content')" in lowered
-    assert "TRY_PARSE_JSON(CAST(TRY_CAST(TRY_VARIANT_GET(j.judge_response.value, '$.choices[0].message.content') AS STRING) AS STRING))" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(j.judge_response.value AS STRING)), '$.choices[0].message.content')" in lowered
+    assert (
+        "TRY_PARSE_JSON(CAST(TRY_CAST(TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(j.judge_response.value AS STRING)), "
+        "'$.choices[0].message.content') AS STRING) AS STRING))"
+    ) in lowered
     assert "'$.score'" in lowered
     _assert_no_native_variant_brackets(lowered, "j.judge_response.value")
 
@@ -602,5 +617,5 @@ def test_cell_lowering_preserves_runtime_variant_alias_for_nested_brackets():
         ],
     ).lower_script(include_cells=True)[0]
 
-    assert "TRY_VARIANT_GET(simulation_result.value, '$.result.response')" in lowered
+    assert "TRY_VARIANT_GET(TRY_PARSE_JSON(CAST(simulation_result.value AS STRING)), '$.result.response')" in lowered
     assert "simulation_result.value['result']" not in lowered

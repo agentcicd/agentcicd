@@ -152,6 +152,13 @@ class TestLexerCorrectness:
         assert "'b'" in result
         assert result.count(',') >= 3  # At least 3 commas
 
+    def test_basic_pair_list_dict(self):
+        """Spark named_struct-style pairs in braces should be accepted."""
+        sql = "SELECT {'role', 'system', 'content', prompt_text}"
+        result = convert_with_lexer(sql)
+
+        assert result == "SELECT to_variant_object(named_struct('role','system','content',prompt_text))"
+
     def test_nested_array(self):
         """Nested array conversion."""
         sql = "SELECT [[1, 2], [3, 4]]"
@@ -166,5 +173,17 @@ class TestLexerCorrectness:
             "SELECT to_variant_object(array("
             "to_variant_object(named_struct('a', 1)), "
             "to_variant_object(named_struct('b', 2))"
+            "))"
+        )
+
+    def test_array_of_pair_list_dicts(self):
+        """Message arrays can use pair-list object literals."""
+        sql = "SELECT [{'role', 'system', 'content', 'hello'}, {'role', 'user', 'content', question}]"
+        result = convert_with_lexer(sql)
+
+        assert result == (
+            "SELECT to_variant_object(array("
+            "to_variant_object(named_struct('role','system','content','hello')), "
+            "to_variant_object(named_struct('role','user','content',question))"
             "))"
         )

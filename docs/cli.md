@@ -1,6 +1,6 @@
 # CLI Reference
 
-The `agentcicd` command is implemented with Typer in `src/agentcicd/cli.py`.
+Use the `agentcicd` command to validate projects, run evaluations, and open the local inspector.
 
 ## Validate
 
@@ -21,6 +21,22 @@ Options:
 - `--backend`: execution backend. Current configured names are `spark`, `validate`, and `duckdb`; the v1 local runner supports Spark execution and validate-only mode.
 - `--ui`: `auto` or `off`. Defaults to `auto`.
 - `--open`: open the local inspection URL in a browser.
+
+## Transpile
+
+```bash
+agentcicd transpile path/to/project
+```
+
+Prints the execution SQL generated from `recipe.sql`, discovered fixtures, declared inputs, and default runtime controls without starting a run.
+
+To write numbered SQL files and a plan manifest:
+
+```bash
+agentcicd transpile path/to/project --output-dir /tmp/agentcicd-transpiled
+```
+
+The output directory contains `engine_plan.json` plus one `.sql` file for each SQL-bearing execution step. Non-SQL steps such as fixture registration and table loads appear in the manifest.
 
 ## UI Serve
 

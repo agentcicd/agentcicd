@@ -24,10 +24,38 @@ from agentcicd.sql.ir.functions import FunctionDefinitionIR
 def _metadata_return_type(metadata: dict[str, object]) -> DataType:
     output_schema = metadata.get("output_schema")
     if isinstance(output_schema, dict):
-        return _json_schema_to_spark_type(output_schema)
+        return_type = _json_schema_to_spark_type(output_schema)
+        if not isinstance(return_type, StringType) or output_schema:
+            return return_type
+    raw_returns = metadata.get("returns")
+    if isinstance(raw_returns, dict):
+        return _manifest_type_to_spark(raw_returns)
     output_type = str(metadata.get("output_type") or "").strip().lower()
     if output_type in {"json", "variant"}:
         return VariantType()
+    return StringType()
+
+
+def _manifest_type_to_spark(manifest_type: dict[str, object]) -> DataType:
+    type_name = str(manifest_type.get("type") or "").strip().lower()
+    if type_name in {"variant", "json"}:
+        return VariantType()
+    if type_name in {"str", "string", "secretid"}:
+        return StringType()
+    if type_name in {"int", "integer"}:
+        return LongType()
+    if type_name in {"float", "double", "number"}:
+        return DoubleType()
+    if type_name in {"bool", "boolean"}:
+        return BooleanType()
+    if type_name == "array":
+        element = manifest_type.get("element")
+        element_type = _manifest_type_to_spark(element) if isinstance(element, dict) else VariantType()
+        return ArrayType(element_type)
+    if type_name == "map":
+        value = manifest_type.get("value")
+        value_type = _manifest_type_to_spark(value) if isinstance(value, dict) else VariantType()
+        return MapType(StringType(), value_type, valueContainsNull=True)
     return StringType()
 
 def _definition_return_type(definition: FunctionDefinitionIR) -> DataType:

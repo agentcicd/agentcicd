@@ -61,4 +61,4 @@ include_cells = true
 max_parallel_stages = 1
 ```
 
-Current backend names are `spark`, `validate`, and `duckdb`; `duckdb` is recognized by configuration but not supported by the v1 runner.
+Most projects can start without `agentcicd.toml`. Add it when you need to pin the backend, change where run artifacts are written, or control local execution settings.

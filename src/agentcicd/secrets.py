@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -7,6 +9,8 @@ from typing import Any
 import yaml
 
 from agentcicd.errors import ProjectLoadError
+
+_ENV_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
 @dataclass(frozen=True)
@@ -78,7 +82,11 @@ def _secret_record_from_yaml_item(key: object, value: object) -> LocalSecretReco
         return _secret_record(normalized_key, secret_type, raw_value, secret_payload, description_value)
     if secret_type == "api_key":
         api_key = _secret_payload_string(value, "api_key", normalized_key, fallback_key="value")
-        secret_payload = {"type": "api_key", "api_key": api_key}
+        secret_payload: dict[str, object] = {"type": "api_key", "api_key": api_key}
+        env_name = _env_ref_name(api_key)
+        if env_name is not None:
+            secret_payload = {"type": "api_key", "api_key_from_env": env_name}
+            api_key = os.getenv(env_name, api_key)
         return _secret_record(normalized_key, secret_type, api_key, secret_payload, description_value)
     if secret_type == "bearer":
         token = _secret_payload_string(value, "token", normalized_key, fallback_key="value")
@@ -113,6 +121,11 @@ def _secret_payload_string(payload: dict[object, object], key: str, secret_key: 
     if not isinstance(value, str) or not value.strip():
         raise ProjectLoadError(f"Secret '{secret_key}' requires non-empty '{key}'")
     return value.strip()
+
+
+def _env_ref_name(value: str) -> str | None:
+    match = _ENV_REF_PATTERN.match(value.strip())
+    return match.group(1) if match else None
 
 
 def _raw_secret_record(key: str, value: str) -> LocalSecretRecord:

@@ -1,6 +1,8 @@
 # AgentCICD SQL
 
-AgentCICD recipes are SQL scripts with workflow statements layered on top of Spark SQL. The parser turns recipe text into immutable IR statements, validates dependencies and contracts, lowers stages, and executes them through the selected backend.
+AgentCICD recipes are SQL scripts for evaluation workflows. Use them to declare inputs, create named stages, call fixtures, publish reports, and coordinate review or runtime controls.
+
+The goal is to keep the evaluation readable. SQL describes the dataflow; Python fixtures handle custom behavior.
 
 ## Minimal Recipe
 
@@ -20,7 +22,7 @@ FROM cases;
 PUBLISH metric_rows TO REPORTS WITH (COMPONENT = METRIC);
 ```
 
-Named tables are evaluation evidence. Prefer separate tables for preparation, target calls, parsing, scoring, and aggregate reporting so a release decision can be traced back to rows.
+Named tables are evaluation evidence. Prefer separate tables for preparation, target calls, parsing, scoring, and aggregate reporting so a result can be traced back to rows.
 
 ## Declared Inputs
 
@@ -33,6 +35,8 @@ DECLARE INPUT threshold FLOAT DEFAULT 0.8;
 ```
 
 Inputs are supplied locally with `inputs.yaml` or `input.properties`. Supported input families in the current validator include scalar SQL types, `DATASET`, `AISYSTEM`, `SECRET`, `RATELIMIT`, `POOL`, and `VARIANT`.
+
+See [Inputs and secrets](inputs-and-secrets.md).
 
 ## Batch And Stream Tables
 
@@ -64,6 +68,8 @@ FROM cases;
 
 Fixture calls use typed signatures from registered fixture functions. Runtime-control inputs such as `RATELIMIT` and `POOL` are handled as control arguments instead of ordinary data values.
 
+See [Python fixtures](fixtures.md).
+
 ## Publish Statements
 
 Publish report rows with:
@@ -78,4 +84,53 @@ Current report components are:
 - `ISSUE`: source table is written to report issue artifacts.
 - `CHART`: source table is written to report chart artifacts and requires chart options such as chart type and axes.
 
-The parser also has workflow forms for publishing datasets and annotation queues. Keep user-facing recipes focused on report publishing unless the destination contract is part of the workflow you are documenting.
+Publish a dataset artifact with:
+
+```sql
+PUBLISH scored_cases TO DATASET "support-smoke-cases";
+```
+
+Use report publishing for values you want surfaced in the inspector's published results view.
+
+## Annotation Queues
+
+Publish rows for human review:
+
+```sql
+PUBLISH cases TO ANNOTATION QUEUE review_queue AS support_review
+WITH (
+  TEMPLATE = '<View><Text name="prompt" value="$prompt"/></View>',
+  REVIEWERS_PER_TASK = 1
+);
+```
+
+The local inspector exposes annotation requests and tasks. Review output is saved with the run and can be finalized into result artifacts.
+
+Use this when an evaluation needs human judgment before downstream results should be trusted.
+
+## Runtime Controls
+
+Runtime controls are declared as inputs and passed into fixture calls.
+
+```sql
+DECLARE INPUT judge_limit RATELIMIT DEFAULT '{"key":"judge","max_in_flight":2}';
+DECLARE INPUT browser_pool POOL DEFAULT '{"kind":"session","name":"browser"}';
+
+CREATE BATCH TABLE judged
+SELECT local.judge_answer(answer = response, rate_limit = judge_limit) AS judgment
+FROM responses;
+```
+
+Use `RATELIMIT` when an evaluation should control request speed or concurrency. Use `POOL` when fixture calls should be routed through a named executor pool.
+
+Pool and rate-limit values live in the recipe input layer, not a separate pool-specific configuration file.
+
+## Naming Guidance
+
+Use stable, meaningful names:
+
+- table names should describe evidence, such as `cases`, `responses`, `judged`, or `metric_rows`
+- input names should describe the dependency, such as `target_url`, `judge_limit`, or `browser_pool`
+- published report tables should have clear columns for their component type
+
+This makes the execution graph and inspector useful to reviewers.

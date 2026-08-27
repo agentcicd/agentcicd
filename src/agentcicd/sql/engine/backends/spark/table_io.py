@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import traceback
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -149,7 +150,11 @@ class SparkTableIOMixin:
         return "Unable to infer schema for Parquet" in message
 
     def _write_table(self, dataframe, path: str) -> None:
-        dataframe.write.mode("overwrite").format(self._table_format).save(path)
+        try:
+            dataframe.write.mode("overwrite").format(self._table_format).save(path)
+        except Exception as exc:
+            detail = _spark_write_error_detail(exc)
+            raise RuntimeError(f"Failed to materialize table at {path}: {detail}") from exc
 
     def _materialize_published_dataset(self, name: str) -> None:
         dataset_path = os.path.join(self._paths.working_dir, "published_datasets", name)
@@ -211,3 +216,22 @@ class SparkTableIOMixin:
         except OSError:
             return False
         return False
+
+
+def _spark_write_error_detail(exc: Exception) -> str:
+    parts: list[str] = []
+    message = str(exc).strip()
+    if message:
+        parts.append(message)
+    java_exception = getattr(exc, "java_exception", None)
+    if java_exception is not None:
+        try:
+            java_message = str(java_exception.toString()).strip()
+        except Exception:
+            java_message = ""
+        if java_message and java_message not in parts:
+            parts.append(java_message)
+    traceback_text = "".join(traceback.format_exception_only(type(exc), exc)).strip()
+    if traceback_text and traceback_text not in parts:
+        parts.append(traceback_text)
+    return " | ".join(parts) or type(exc).__name__

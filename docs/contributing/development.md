@@ -29,8 +29,8 @@ The UI build writes static assets that are packaged under `src/agentcicd/ui_stat
 ## Repository Areas
 
 - `src/agentcicd/`: Python package, CLI, local runner, project loading, reports, and UI server.
-- `src/agentcicd/sql/`: recipe parser, IR, semantics, lowering, execution engine, runtime helpers, and backend services.
+- `src/agentcicd/sql/`: recipe syntax, validation, execution, runtime helpers, and backend integrations.
 - `src/agentcicd/fixtures/`: fixture authoring API and builtin fixture support.
-- `src/agentcicd/sandbox/`: local sandbox manager and function-runner boundary.
+- `src/agentcicd/sandbox/`: local fixture execution support.
 - `ui/`: React/Vite inspector source.
 - `tests/`: Python and SQL engine tests.

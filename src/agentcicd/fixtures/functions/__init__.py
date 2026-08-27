@@ -94,12 +94,14 @@ def _build_builtin_callable(name: str, udf_cls: type[Udf]) -> Callable[..., Any]
     transform = callable_attr(function_instance, "transform")
     if isinstance(function_instance, AsyncRowFunction) and callable(transform):
         async def _invoke_async(*args: Any, **kwargs: Any) -> Any:
-            return _json_safe(await transform(*args, **kwargs))
+            resolved_args, resolved_kwargs = _resolve_transform_args(transform, args, kwargs)
+            return _json_safe(await transform(*resolved_args, **resolved_kwargs))
 
         return _invoke_async
     if isinstance(function_instance, RowFunction) and callable(transform):
         def _invoke_sync(*args: Any, **kwargs: Any) -> Any:
-            return _json_safe(transform(*args, **kwargs))
+            resolved_args, resolved_kwargs = _resolve_transform_args(transform, args, kwargs)
+            return _json_safe(transform(*resolved_args, **resolved_kwargs))
 
         return _invoke_sync
 
@@ -117,6 +119,28 @@ def _build_builtin_callable(name: str, udf_cls: type[Udf]) -> Callable[..., Any]
         return _execute_udf(udf_instance, ordered)
 
     return _invoke
+
+
+def _resolve_transform_args(transform: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    from agentcicd.fixtures.core.retry import RetryConfig
+    from agentcicd.fixtures.core.timeout import TimeoutConfig
+
+    resolved_kwargs = dict(kwargs)
+    parameters = [
+        parameter
+        for parameter in inspect.signature(transform).parameters.values()
+        if parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    ]
+    for parameter in parameters[len(args):]:
+        if parameter.name in resolved_kwargs:
+            continue
+        annotation = parameter.annotation
+        annotation_name = annotation if isinstance(annotation, str) else getattr(annotation, "__name__", "")
+        if annotation is TimeoutConfig or annotation_name in {"TimeoutConfig", "agentcicd.fixtures.core.timeout.TimeoutConfig"}:
+            resolved_kwargs[parameter.name] = TimeoutConfig()
+        elif annotation is RetryConfig or annotation_name in {"RetryConfig", "agentcicd.fixtures.core.retry.RetryConfig"}:
+            resolved_kwargs[parameter.name] = RetryConfig()
+    return args, resolved_kwargs
 
 
 @lru_cache(maxsize=1)
@@ -252,7 +276,10 @@ def _build_local_runtime_fixture_callable(name: str, fixture: dict[str, Any]) ->
 
 async def _invoke_local_runtime_fixture(function_name: str, payload: dict[str, Any]) -> Any:
     try:
-        from agentcicd.sandbox.function_runner import invoke_function
+        try:
+            from agentcicd_sandbox.function_runner import invoke_function
+        except Exception:
+            from agentcicd.sandbox.function_runner import invoke_function
     except Exception as exc:
         raise RuntimeError("Local nested fixture dispatch requires agentcicd.sandbox.function_runner") from exc
     return _json_safe(await invoke_function(function_name, payload))

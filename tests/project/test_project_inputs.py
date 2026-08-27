@@ -12,7 +12,7 @@ from agentcicd.config import BackendName
 from agentcicd.errors import BackendNotSupportedError, InputCoercionError, ProjectLoadError
 from agentcicd.project import load_project
 from agentcicd.runtime import local_runner
-from agentcicd.runtime.local_runner import _configure_local_spark_python, prepare_run, run_project, validate_project
+from agentcicd.runtime.local_runner import _configure_local_spark_python, _write_local_runtime_context, prepare_run, run_project, validate_project
 
 
 def test_load_project_coerces_yaml_inputs_and_secrets(tmp_path: Path) -> None:
@@ -70,6 +70,102 @@ def test_load_project_coerces_yaml_inputs_and_secrets(tmp_path: Path) -> None:
             "secret": {"type": "raw", "value": "local-token"},
         },
     ]
+
+
+def test_load_project_supports_env_backed_api_key_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+    project = _write_project(
+        tmp_path,
+        recipe_sql="""
+        DECLARE INPUT judge SECRET;
+        CREATE BATCH TABLE prepared SELECT 1 AS value;
+        """,
+        inputs_yaml="judge: secret.openai\n",
+        secrets_yaml="""
+        openai:
+          type: api_key
+          api_key: ${OPENAI_API_KEY}
+          description: local model key
+        """,
+    )
+
+    spec = load_project(project)
+
+    assert [record.to_runtime_record() for record in spec.secrets] == [
+        {
+            "id": "secret.openai",
+            "organization_id": "local",
+            "key": "openai",
+            "description": "local model key",
+            "secret_type": "api_key",
+            "value": "sk-from-env",
+            "secret": {"type": "api_key", "api_key_from_env": "OPENAI_API_KEY"},
+        }
+    ]
+
+
+def test_load_project_keeps_unset_env_backed_api_key_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    project = _write_project(
+        tmp_path,
+        recipe_sql="""
+        DECLARE INPUT judge SECRET;
+        CREATE BATCH TABLE prepared SELECT 1 AS value;
+        """,
+        inputs_yaml="judge: secret.openai\n",
+        secrets_yaml="""
+        openai:
+          type: api_key
+          api_key: ${OPENAI_API_KEY}
+        """,
+    )
+
+    spec = load_project(project)
+
+    assert spec.secrets[0].value == "${OPENAI_API_KEY}"
+    assert spec.secrets[0].secret == {"type": "api_key", "api_key_from_env": "OPENAI_API_KEY"}
+
+
+def test_load_project_accepts_direct_provider_model_for_local_aisystem_input(tmp_path: Path) -> None:
+    project = _write_project(
+        tmp_path,
+        recipe_sql="""
+        DECLARE INPUT target AISYSTEM
+        WITH interface = 'llm.chat'
+        DEFAULT 'aisystem.target';
+        CREATE BATCH TABLE prepared SELECT 1 AS value;
+        """,
+        inputs_yaml="target: openai/gpt-4.1-mini\n",
+    )
+
+    spec = load_project(project)
+
+    assert spec.inputs.input_values["target"] == "openai/gpt-4.1-mini"
+
+
+def test_local_runtime_context_includes_loaded_project_secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+    project = _write_project(
+        tmp_path,
+        recipe_sql="""
+        DECLARE INPUT judge SECRET;
+        CREATE BATCH TABLE prepared SELECT 1 AS value;
+        """,
+        inputs_yaml="judge: secret.openai\n",
+        secrets_yaml="""
+        openai:
+          type: api_key
+          api_key: ${OPENAI_API_KEY}
+        """,
+    )
+    spec = load_project(project)
+    run_dir = tmp_path / "run"
+
+    context_path = _write_local_runtime_context(spec, run_dir=run_dir)
+    payload = json.loads(context_path.read_text(encoding="utf-8"))
+
+    assert payload["secret_ids"] == ["secret.openai"]
+    assert payload["secrets"][0]["secret"] == {"type": "api_key", "api_key_from_env": "OPENAI_API_KEY"}
 
 
 def test_properties_files_remain_scalar_compatibility_path(tmp_path: Path) -> None:

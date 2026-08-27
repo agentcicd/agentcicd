@@ -102,6 +102,26 @@ def test_resolve_litellm_payload_from_aisystem_canonicalizes_unprefixed_claude_m
     assert resolved == {"model": "anthropic/claude-3-5-haiku-latest", "secret_id": "secret.1"}
 
 
+def test_resolve_litellm_payload_accepts_direct_provider_model() -> None:
+    resolved = resolve_litellm_payload_from_aisystem(
+        aisystem_id="openai/gpt-4.1-mini",
+        expected_interface_type="llm.chat",
+        secret_id_or_key="secret.openai",
+        options={
+            "secret_ids": ["secret.openai"],
+            "secrets_by_id": {
+                "secret.openai": {
+                    "id": "secret.openai",
+                    "key": "openai",
+                    "secret": {"type": "api_key", "api_key": "sk-test"},
+                }
+            },
+        },
+    )
+
+    assert resolved == {"model": "openai/gpt-4.1-mini", "secret_id": "secret.openai"}
+
+
 def test_resolve_a2a_payload_from_aisystem_allows_no_secret() -> None:
     resolved = resolve_a2a_payload_from_aisystem(
         aisystem_id="aisystem.support",

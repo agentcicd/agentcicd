@@ -10,6 +10,7 @@ from agentcicd.fixtures.core.types import FType, JsonType
 from agentcicd.fixtures.core.udf import Udf
 
 import agentcicd.fixtures.functions
+import agentcicd_fixtures.functions
 
 
 class _SyncEchoFunction(RowFunction):

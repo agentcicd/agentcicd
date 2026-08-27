@@ -33,12 +33,12 @@ The local runner discovers fixture files from:
 
 ## Runtime Boundary
 
-The local runner builds a fixture runtime plan before validating a project. During Spark execution, fixture calls are routed through the local fixture runtime and sandbox manager rather than being embedded directly into recipe SQL.
+During a run, fixture calls are routed through AgentCICD instead of being embedded directly into recipe SQL.
 
-This keeps lifecycle, limits, teardown, and runtime-control behavior in one place.
+This lets the evaluation use normal Python for custom logic while the recipe keeps the workflow readable. It also gives AgentCICD a place to apply runtime controls such as rate limits and executor pools.
 
 ## Public Authoring Imports
 
 The package exports fixture authoring helpers from `agentcicd`, including `function`, scalar types such as `Str`, `Int`, `Float`, `Bool`, and richer types such as `Variant`, `Array`, `Map`, and `NamedStruct`.
 
-Prefer importing authoring helpers from `agentcicd` in user examples unless an internal module is required for a maintainer test.
+Prefer importing authoring helpers from `agentcicd` in project fixtures.

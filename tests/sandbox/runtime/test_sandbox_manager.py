@@ -12,6 +12,7 @@ from agentcicd.sandbox.manager import (
     GVisorHelperWorkerLifecycle,
     ManagerConfig,
     SandboxManager,
+    SubprocessFunctionWorkerLifecycle,
     WorkerRecord,
     manager_config_from_env,
 )
@@ -133,6 +134,54 @@ def test_service_pool_reuses_worker_for_same_slot() -> None:
     assert first["result"]["worker_id"] == second["result"]["worker_id"]
     assert lifecycle.created == ["worker-1"]
     assert lifecycle.stopped == []
+
+
+def test_service_pool_without_lease_spreads_calls_across_local_slots() -> None:
+    lifecycle = RecordingLifecycle()
+    config = replace(_config("service"), require_lease=False, max_workers=2)
+    manager = SandboxManager(config, lifecycle)
+
+    first_status, first = manager.invoke("check", {"args": {"value": "a"}})
+    second_status, second = manager.invoke("check", {"args": {"value": "b"}})
+    third_status, third = manager.invoke("check", {"args": {"value": "c"}})
+
+    assert first_status == second_status == third_status == 200
+    assert first["result"]["worker_id"] == "worker-1"
+    assert second["result"]["worker_id"] == "worker-2"
+    assert third["result"]["worker_id"] == "worker-1"
+    assert lifecycle.created == ["worker-1", "worker-2"]
+
+
+def test_subprocess_function_worker_reuses_process_for_service_invocations(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "counter_fixture.py"
+    source.write_text(
+        "\n".join(
+            [
+                "from agentcicd import Int, function",
+                "_counter = 0",
+                "@function",
+                "def counter(value: Int) -> Int:",
+                "    global _counter",
+                "    _counter += 1",
+                "    return _counter",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTCICD_FUNCTION_SOURCE_PATHS", f'["{source}"]')
+    lifecycle = SubprocessFunctionWorkerLifecycle()
+    worker = lifecycle.create("manager.1.slot-1")
+
+    try:
+        first = lifecycle.invoke(worker, "counter", {"value": 1})
+        second = lifecycle.invoke(worker, "counter", {"value": 1})
+    finally:
+        lifecycle.stop(worker, reason="test_complete")
+
+    assert first["result"] == 1
+    assert second["result"] == 2
+    assert worker.invocation_count == 2
 
 
 def test_worker_exit_fallback_includes_returncode_and_output_tail() -> None:

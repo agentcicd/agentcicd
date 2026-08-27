@@ -23,6 +23,21 @@ class StubRuntimeFunctionInvoker:
     def __init__(self, package_distributor: Any | None = None) -> None:
         self._package_distributor = package_distributor
 
+    def can_handle(self, definition: FunctionDefinitionIR) -> bool:
+        metadata = getattr(definition, "metadata", {}) or {}
+        if not isinstance(metadata, dict):
+            return True
+        if str(metadata.get("execution_runtime") or "").strip():
+            return False
+        if str(metadata.get("pool_kind") or "").strip():
+            return False
+        pool = metadata.get("pool")
+        if isinstance(pool, dict) and str(pool.get("kind") or "").strip():
+            return False
+        if str(metadata.get("base_url") or "").strip() or str(metadata.get("invoke_path") or "").strip():
+            return False
+        return True
+
     def register(self, spark_session, definition: FunctionDefinitionIR) -> str:
         if self._package_distributor is None:
             self._package_distributor = SparkWorkerPackageDistributor()

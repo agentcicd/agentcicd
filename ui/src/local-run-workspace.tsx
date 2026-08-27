@@ -1,12 +1,12 @@
-import { AlertCircle, Boxes, CheckCircle2, ClipboardCheck, FileText, Gauge, KeyRound, Play, SlidersHorizontal, Table2 } from "lucide-react";
+import Editor from "@monaco-editor/react";
+import { AlertCircle, Boxes, CheckCircle2, ClipboardCheck, KeyRound, Play, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import type { AnnotationRequestRead, AnnotationTaskRead, InspectionClient, InspectionResource, JsonValue, ProgressContent, ProjectInspection, ReportContent, RunInspection, RunLogsContent } from "./types";
+import type { AnnotationRequestRead, AnnotationTaskRead, InspectionClient, InspectionResource, JsonValue, ProjectInspection, ReportContent, RunInspection } from "./types";
 import { InspectionShell, type InspectionSection } from "./inspection-shell";
 import { LabelStudioRenderer } from "./label-studio-renderer";
-import { CommonDetailsComponent, CommonListComponent, ResourceDetailHeader, ResourceField, ResourceReadonlyTextarea, ResourceSearchInput, ResourceTable, type ResourceTableColumn } from "./resource-workspace";
+import { CommonDetailsComponent, CommonListComponent, ResourceDetailHeader, ResourceField, ResourceReadonlyTextarea, ResourceTable, type ResourceTableColumn } from "./resource-workspace";
 import { ServiceCard, StatusBadge } from "./service-primitives";
-import { ServiceDataTable, ServiceReportContent } from "./service-renderers";
 import { RunGraph } from "./run-graph";
 
 const POLL_INTERVAL_MS = 1500;
@@ -77,14 +77,14 @@ export function LocalRunWorkspace({ client, projectId, runId }: { client: Inspec
   if (!project) return <LoadingState />;
 
   const content = section === "run"
-    ? <RunHome client={client} project={project} runId={selectedRunId} />
+    ? <RunHome client={client} runId={selectedRunId} />
     : section === "recipe"
       ? <RecipeView client={client} projectId={projectId} />
       : section === "annotations"
         ? <AnnotationsView client={client} runId={selectedRunId} />
         : <ResourceView client={client} projectId={projectId} project={project} kind={section === "fixtures" ? "fixtures" : section === "inputs" ? "inputs" : "secrets"} />;
 
-  return <InspectionShell projectName={project.project.name} activeSection={section} onNavigate={navigateSection}>{content}</InspectionShell>;
+  return <InspectionShell projectName={project.project.name} activeSection={section} onNavigate={navigateSection} headerActions={selectedRunId ? <RunTopStatus client={client} runId={selectedRunId} /> : null}>{content}</InspectionShell>;
 }
 
 function initialSectionFromLocation(): InspectionSection {
@@ -93,31 +93,27 @@ function initialSectionFromLocation(): InspectionSection {
   return requested && LOCAL_SECTIONS.has(requested) ? requested : "run";
 }
 
-function RunHome({ client, project, runId }: { client: InspectionClient; project: ProjectInspection; runId: string | null }) {
-  if (!runId) return <EmptyRunState />;
+function RunTopStatus({ client, runId }: { client: InspectionClient; runId: string }) {
   const runState = usePolling(() => client.run(runId), [client, runId]);
+  if (!runState.value) return null;
+  return <StatusBadge status={runState.value.run.status} />;
+}
+
+function RunHome({ client, runId }: { client: InspectionClient; runId: string | null }) {
+  if (!runId) return <EmptyRunState />;
   const graphState = usePolling(() => client.graph(runId), [client, runId]);
   const reportState = usePolling(() => client.report(runId), [client, runId]);
-  const progressState = usePolling(() => client.progress(runId), [client, runId]);
   const logsState = usePolling(() => client.logs(runId), [client, runId], 5000);
+  const runState = usePolling(() => client.run(runId), [client, runId]);
 
-  if (runState.error || graphState.error || reportState.error || progressState.error || logsState.error) return <ErrorState message={runState.error ?? graphState.error ?? reportState.error ?? progressState.error ?? logsState.error ?? "Unable to load the run."} />;
-  if (!runState.value || !graphState.value || !reportState.value || !progressState.value || !logsState.value) return <LoadingState />;
+  if (graphState.error || reportState.error || logsState.error || runState.error) return <ErrorState message={graphState.error ?? reportState.error ?? logsState.error ?? runState.error ?? "Unable to load the run."} />;
+  if (!graphState.value || !reportState.value || !logsState.value || !runState.value) return <LoadingState />;
 
-  return <main className="flex min-h-[calc(100vh-10rem)] min-w-0 flex-col gap-5">
-    <RunHeader project={project} run={runState.value} />
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.8fr)_minmax(19rem,0.8fr)]">
-      <RunGraph graph={graphState.value} />
-      <div className="space-y-5">
-        <RunResults run={runState.value} report={reportState.value} />
-        <RuntimeControlPanel client={client} runId={runId} />
-      </div>
+  return <main className="flex h-[calc(100vh-7rem)] min-h-[28rem] min-w-0 flex-col gap-4 overflow-hidden">
+    <RunResultCard run={runState.value} report={reportState.value} />
+    <div className="min-h-0 flex-1">
+      <RunGraph client={client} runId={runId} graph={graphState.value} logs={logsState.value} report={reportState.value} />
     </div>
-    <div className="grid gap-5 xl:grid-cols-2">
-      <RunProgressPanel progress={progressState.value} />
-      <RunLogsPanel logs={logsState.value} />
-    </div>
-    <RunReport report={reportState.value} />
   </main>;
 }
 
@@ -125,14 +121,7 @@ function EmptyRunState() {
   return <ServiceCard className="p-6"><div className="flex items-center gap-3"><Play className="h-5 w-5 text-slate-500" /><div><h2 className="text-base font-medium text-slate-900">No runs yet</h2><p className="mt-1 text-sm text-slate-500">Run this project to materialize a live execution graph and evaluation results.</p></div></div></ServiceCard>;
 }
 
-function RunHeader({ project, run }: { project: ProjectInspection; run: RunInspection }) {
-  return <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
-    <div className="min-w-0"><p className="text-xs font-medium uppercase text-slate-500">Run</p><h1 className="mt-1 truncate text-xl font-semibold text-slate-900">{project.project.name}</h1><p className="mt-1 truncate font-mono text-xs text-slate-500">{run.run.id}</p></div>
-    <StatusBadge status={run.run.status} className="self-start" />
-  </header>;
-}
-
-function RunResults({ run, report }: { run: RunInspection; report: ReportContent }) {
+function RunResultCard({ run, report }: { run: RunInspection; report: ReportContent }) {
   const execution = run.execution_summary;
   const resultCards: Array<{ label: string; value: string | number }> = [
     { label: "Stages", value: `${execution.completed_stage_count ?? 0}/${execution.stage_count ?? 0}` },
@@ -140,53 +129,19 @@ function RunResults({ run, report }: { run: RunInspection; report: ReportContent
     { label: "Issues", value: report.issues.length },
     { label: "Errors", value: execution.row_error_count ?? 0 },
   ];
-  return <ServiceCard className="p-5"><div className="flex items-center gap-2"><Table2 className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-medium text-slate-900">Run results</h2></div><dl className="mt-5 grid grid-cols-2 gap-3">{resultCards.map((item) => <div key={item.label} className="border-l-2 border-slate-200 pl-3"><dt className="text-xs text-slate-500">{item.label}</dt><dd className="mt-1 text-xl font-semibold text-slate-900">{item.value}</dd></div>)}</dl><div className="mt-6 border-t border-slate-100 pt-4"><p className="text-xs text-slate-500">Updates read from the run directory.</p></div></ServiceCard>;
-}
-
-function RunProgressPanel({ progress }: { progress: ProgressContent }) {
-  const rows = progress.steps.map((step, index) => ({
-    id: text(step.id) !== "-" ? text(step.id) : `${text(step.step_type)}:${text(step.step_name)}:${index}`,
-    type: text(step.step_type).replaceAll("_", " "),
-    name: text(step.step_name),
-    status: text(step.status),
-    row_count: step.row_count,
-    error: step.error,
-  }));
-  return <ServiceCard className="p-5">
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2"><Play className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-medium text-slate-900">Progress</h2></div>
-      <span className="hidden text-xs text-slate-500 sm:inline">{progress.completed_steps}/{progress.total_steps} completed</span>
-    </div>
-    {rows.length ? <div className="divide-y divide-slate-100 rounded-md border border-slate-200">{rows.map((row) => <div key={row.id} className="grid gap-3 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-center"><div className="min-w-0"><p className="truncate font-medium text-slate-900">{row.name}</p><p className="truncate text-xs text-slate-500">{row.type}{row.row_count !== undefined ? ` - ${text(row.row_count)}` : ""}</p>{row.error !== undefined && row.error !== null ? <p className="mt-1 truncate text-xs text-red-600">{text(row.error)}</p> : null}</div><span className="hidden font-mono text-xs text-slate-500 sm:block">{row.id}</span><StatusBadge status={row.status} /></div>)}</div> : <p className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Waiting for execution progress.</p>}
-  </ServiceCard>;
-}
-
-function RunLogsPanel({ logs }: { logs: RunLogsContent }) {
-  return <ServiceCard className="p-5">
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-medium text-slate-900">Logs</h2></div>
-      <span className="text-xs text-slate-500">{logs.files.length} files</span>
-    </div>
-    {logs.files.length ? <div className="mb-4 grid gap-2 sm:grid-cols-2">{logs.files.slice(0, 6).map((file) => <div key={file.path} className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"><p className="truncate font-mono text-xs text-slate-800">{file.name}</p><p className="mt-1 text-xs text-slate-500">{file.size_bytes} bytes</p></div>)}</div> : null}
-    <pre className="max-h-72 overflow-auto rounded-md border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100">{logs.text || "No log text available."}</pre>
-  </ServiceCard>;
-}
-
-function RunReport({ report }: { report: ReportContent }) {
-  return <ServiceCard className="min-h-0 p-5"><h2 className="text-sm font-medium text-slate-900">Published results</h2>{report.metrics.length || report.issues.length || report.charts.length ? <div className="mt-4"><ServiceReportContent metrics={report.metrics} issues={report.issues} charts={report.charts} /></div> : <p className="mt-4 text-sm text-slate-500">Results will appear here as recipe stages publish them.</p>}</ServiceCard>;
+  return <ServiceCard className="shrink-0 p-4"><dl className="grid gap-3 sm:grid-cols-4">{resultCards.map((item) => <div key={item.label} className="border-l-2 border-slate-200 pl-3"><dt className="text-xs text-slate-500">{item.label}</dt><dd className="mt-1 text-xl font-semibold text-slate-900">{item.value}</dd></div>)}</dl></ServiceCard>;
 }
 
 function AnnotationsView({ client, runId }: { client: InspectionClient; runId: string | null }) {
   const requestsState = usePolling(() => runId ? client.annotationRequests(runId) : Promise.resolve({ items: [], total: 0 }), [client, runId]);
-  const [query, setQuery] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const requests = requestsState.value?.items ?? [];
-  const filteredRequests = requests.filter((request) => `${request.id} ${request.source_table} ${request.status} ${request.publish_alias ?? ""}`.toLowerCase().includes(query.toLowerCase()));
-  const selectedRequest = filteredRequests.find((request) => request.id === (selectedRequestId ?? filteredRequests[0]?.id)) ?? null;
+  const selectedRequest = requests.find((request) => request.id === selectedRequestId) ?? null;
 
   if (!runId) return <EmptyRunState />;
   if (requestsState.error) return <ErrorState message={requestsState.error} />;
   if (!requestsState.value) return <LoadingState />;
+  if (!requests.length) return <EmptyResourcePage title="No annotations" message="No annotation requests are used by this run." />;
 
   const columns: ResourceTableColumn<AnnotationRequestRead>[] = [
     {
@@ -216,12 +171,11 @@ function AnnotationsView({ client, runId }: { client: InspectionClient; runId: s
 
   return <main className="grid min-h-[calc(100vh-10rem)] gap-5 xl:grid-cols-[minmax(26rem,0.95fr)_minmax(0,1.6fr)]">
     <CommonListComponent
-      search={<ResourceSearchInput placeholder="Search annotation requests" value={query} onChange={setQuery} />}
-      hasItems={filteredRequests.length > 0}
-      emptyState={<div className="p-6 text-sm text-slate-500">No annotation requests are waiting for this run.</div>}
+      search={<div className="text-sm font-medium text-slate-900">Annotation requests</div>}
+      hasItems={requests.length > 0}
     >
       <ResourceTable
-        rows={filteredRequests}
+        rows={requests}
         columns={columns}
         getRowId={(request) => request.id}
         selectedRowId={selectedRequest?.id ?? null}
@@ -347,38 +301,28 @@ function toJsonRecord(value: unknown): Record<string, JsonValue> {
   return JSON.parse(JSON.stringify(value ?? {})) as Record<string, JsonValue>;
 }
 
-function RuntimeControlPanel({ client, runId }: { client: InspectionClient; runId: string }) {
-  const poolsState = usePolling(() => client.runtimePools(runId), [client, runId]);
-  const limitsState = usePolling(() => client.runtimeRateLimits(runId), [client, runId]);
-  if (poolsState.error || limitsState.error) return <ErrorState message={poolsState.error ?? limitsState.error ?? "Unable to load runtime controls."} />;
-  if (!poolsState.value || !limitsState.value) return <LoadingState />;
-  if (!poolsState.value.nodes.length && !limitsState.value.leases.length) return null;
-  const poolRows = poolsState.value.nodes.map((node) => ({ ...node }));
-  const limitRows = limitsState.value.leases.map((lease) => ({ ...lease }));
-  return <ServiceCard className="p-5"><div className="flex items-center gap-2"><Gauge className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-medium text-slate-900">Runtime controls</h2></div><div className="mt-4 space-y-4">{poolRows.length ? <ServiceDataTable rows={poolRows} preferredColumns={["pool_name", "pool_kind", "node_id", "capacity", "available", "status"]} /> : null}{limitRows.length ? <ServiceDataTable rows={limitRows} preferredColumns={["key", "max_in_flight", "active_count"]} /> : null}</div></ServiceCard>;
-}
-
-
 function RecipeView({ client, projectId }: { client: InspectionClient; projectId: string }) {
   const recipeState = usePolling(() => client.recipe(projectId, "recipe.sql"), [client, projectId], 5000);
   if (recipeState.error) return <ErrorState message={recipeState.error} />;
   if (!recipeState.value) return <LoadingState />;
   const recipe = recipeState.value.recipe;
-  return <main className="min-h-[calc(100vh-10rem)]"><CommonDetailsComponent title={recipe.name} subtitle={recipe.path}><ResourceDetailHeader title={recipe.name} subtitle={recipe.path} actions={<StatusBadge status={recipe.status} />} /><ResourceField label="recipe.sql"><ResourceReadonlyTextarea value={recipe.source_text} rows={30} /></ResourceField></CommonDetailsComponent></main>;
+  return <main className="min-h-[calc(100vh-10rem)]"><ServiceCard className="overflow-hidden"><div className="h-[calc(100vh-9rem)] min-h-[32rem]"><Editor height="100%" defaultLanguage="sql" theme="vs" value={recipe.source_text ?? ""} options={{ readOnly: true, minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false, scrollbar: { alwaysConsumeMouseWheel: false } }} /></div></ServiceCard></main>;
 }
 
 function ResourceView({ client, projectId, project, kind }: { client: InspectionClient; projectId: string; project: ProjectInspection; kind: ResourceKind }) {
-  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const resources = kind === "fixtures" ? project.resources.fixtures : kind === "inputs" ? project.resources.inputs.map(inputToResource) : project.resources.secrets.map(secretToResource);
-  const filtered = resources.filter((resource) => `${resource.name} ${resource.status}`.toLowerCase().includes(query.toLowerCase()));
-  const selected = filtered.find((resource) => resource.id === selectedId) ?? null;
+  const selected = resources.find((resource) => resource.id === selectedId) ?? null;
   const title = kind === "fixtures" ? "Fixtures" : kind === "inputs" ? "Inputs" : "Secrets";
   const columns: ResourceTableColumn<InspectionResource>[] = [
     { id: "name", header: "Name", cell: (resource) => <span className="font-medium text-slate-900">{resource.name}</span> },
-    { id: "status", header: "Status", width: "10rem", align: "right", cell: (resource) => <StatusBadge status={resource.status} /> },
   ];
-  return <main className="grid min-h-[calc(100vh-10rem)] gap-5 xl:grid-cols-[minmax(20rem,0.8fr)_minmax(0,1.7fr)]"><CommonListComponent search={<ResourceSearchInput placeholder={`Search ${title.toLowerCase()}`} value={query} onChange={setQuery} />} hasItems={filtered.length > 0} emptyState={<div className="p-6 text-sm text-slate-500">No {title.toLowerCase()} are used by this recipe.</div>}><ResourceTable rows={filtered} columns={columns} getRowId={(resource) => resource.id} selectedRowId={selectedId} onRowOpen={(resource) => setSelectedId(resource.id)} mobileTitle={(resource) => resource.name} mobileMeta={(resource) => <StatusBadge status={resource.status} />} /></CommonListComponent><ResourceDetails client={client} projectId={projectId} resource={selected} kind={kind} /></main>;
+  if (!resources.length) return <EmptyResourcePage title={`No ${title.toLowerCase()}`} message={`No ${title.toLowerCase()} are used by this recipe.`} />;
+  return <main className={`grid min-h-[calc(100vh-10rem)] gap-5 ${selected ? "xl:grid-cols-[minmax(20rem,0.8fr)_minmax(0,1.7fr)]" : ""}`}><CommonListComponent search={<div className="text-sm font-medium text-slate-900">{title}</div>} hasItems={resources.length > 0}><ResourceTable rows={resources} columns={columns} getRowId={(resource) => resource.id} selectedRowId={selectedId} onRowOpen={(resource) => setSelectedId(resource.id)} mobileTitle={(resource) => resource.name} /></CommonListComponent>{selected ? <ResourceDetails client={client} projectId={projectId} resource={selected} kind={kind} /> : null}</main>;
+}
+
+function EmptyResourcePage({ title, message }: { title: string; message: string }) {
+  return <main className="flex min-h-[calc(100vh-10rem)] items-center justify-center"><div className="text-center"><h2 className="text-base font-medium text-slate-900">{title}</h2><p className="mt-2 text-sm text-slate-500">{message}</p></div></main>;
 }
 
 function secretToResource(secret: Record<string, JsonValue>): InspectionResource {
@@ -398,11 +342,11 @@ function ResourceDetails({ client, projectId, resource, kind }: { client: Inspec
     [client, projectId, resource?.id, kind],
     5000,
   );
-  if (!resource) return <CommonDetailsComponent title="Select a resource" subtitle="Choose an item from the list to inspect it."><ResourceDetailHeader title="Select a resource" subtitle="Choose an item from the list to inspect it." /></CommonDetailsComponent>;
+  if (!resource) return null;
   if (fixtureState.error) return <ErrorState message={fixtureState.error} />;
   const details = resource.details ?? {};
   const fixture = fixtureState.value?.fixture;
   const icon: ReactNode = kind === "fixtures" ? <Boxes className="h-4 w-4" /> : kind === "inputs" ? <SlidersHorizontal className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />;
   const subtitle = kind === "fixtures" ? "Recipe fixture" : kind === "inputs" ? "Recipe input" : "Recipe secret";
-  return <CommonDetailsComponent title={resource.name} subtitle={subtitle}><ResourceDetailHeader title={<span className="flex items-center gap-2">{icon}{resource.name}</span>} subtitle={subtitle} actions={<StatusBadge status={resource.status} />} /><div className="space-y-5"><div className="grid gap-4 sm:grid-cols-2">{Object.entries(details).map(([key, value]) => <ResourceField key={key} label={key.replaceAll("_", " ")}><p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700">{Array.isArray(value) ? value.join(", ") : text(value)}</p></ResourceField>)}</div>{fixture?.source_text ? <ResourceField label="Source"><ResourceReadonlyTextarea value={fixture.source_text} rows={22} /></ResourceField> : null}</div></CommonDetailsComponent>;
+  return <CommonDetailsComponent title={resource.name} subtitle={subtitle}><ResourceDetailHeader title={<span className="flex items-center gap-2">{icon}{resource.name}</span>} subtitle={subtitle} /><div className="space-y-5"><div className="grid gap-4 sm:grid-cols-2">{Object.entries(details).map(([key, value]) => <ResourceField key={key} label={key.replaceAll("_", " ")}><p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700">{Array.isArray(value) ? value.join(", ") : text(value)}</p></ResourceField>)}</div>{fixture?.source_text ? <ResourceField label="Source"><ResourceReadonlyTextarea value={fixture.source_text} rows={22} /></ResourceField> : null}</div></CommonDetailsComponent>;
 }

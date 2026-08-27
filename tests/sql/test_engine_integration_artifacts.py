@@ -165,11 +165,9 @@ def test_runner_writes_plan_transpiled_sql_and_execution_report(tmp_path: Path, 
     execution_report = json.loads((run_dir / "logs" / "engine_execution_report.json").read_text(encoding="utf-8"))
     transpiled_files = sorted((run_dir / "logs" / "transpiled").glob("*.sql"))
 
-    assert [entry["kind"] for entry in plan_manifest][:3] == [
-        "register_runtime_function",
-        "load_table",
-        "create_batch_table",
-    ]
+    plan_kinds = [entry["kind"] for entry in plan_manifest]
+    assert "register_runtime_function" in plan_kinds
+    assert plan_kinds.index("load_table") < plan_kinds.index("create_batch_table")
     assert execution_report["failed_step_kind"] is None
     assert transpiled_files
-    assert "EMBED" in transpiled_files[0].read_text(encoding="utf-8")
+    assert any("EMBED" in path.read_text(encoding="utf-8") for path in transpiled_files)

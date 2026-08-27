@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Play } from "lucide-react";
+import { AlertCircle, BarChart3, CheckCircle2, FileText, Play, Table2, X } from "lucide-react";
 import { Background, Controls, MarkerType, Position, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -13,24 +13,102 @@ import {
   statusColor,
 } from "./recipe-graph-semantics";
 import { ServiceCard, StatusBadge } from "./service-primitives";
-import type { JsonValue, RunGraphContent, RunGraphNode } from "./types";
+import { ServiceDataTable, ServiceReportContent } from "./service-renderers";
+import type { InspectionClient, JsonValue, ReportContent, RunGraphContent, RunGraphNode, RunLogsContent, RunTableRows } from "./types";
 
-export function RunGraph({ graph }: { graph: RunGraphContent }) {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
+type DrawerSelection =
+  | { kind: "node"; nodeId: string }
+  | { kind: "logs" }
+  | { kind: "results" };
+
+export function RunGraph({ client, runId, graph, logs, report }: { client: InspectionClient; runId: string; graph: RunGraphContent; logs: RunLogsContent; report: ReportContent }) {
+  const [selection, setSelection] = useState<DrawerSelection | null>(null);
+  const selectedNodeId = selection?.kind === "node" ? selection.nodeId : null;
+  const selectedNode = selectedNodeId ? graph.nodes.find((node) => node.id === selectedNodeId) ?? null : null;
   const compact = useCompactViewport();
   const flow = useMemo(() => buildFlow(graph, compact), [graph, compact]);
-  return <ServiceCard className="overflow-hidden sm:min-h-[36rem]">
-    <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><Play className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-medium text-slate-900">Execution graph</h2></div><span className="text-xs text-slate-500">{graph.nodes.length} nodes</span></div>
-    <div className="block bg-[#fbfcfe] p-4 sm:hidden"><MobileGraphList graph={graph} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} /></div>
-    <div className="hidden h-[31rem] bg-[#fbfcfe] sm:block"><ReactFlow nodes={flow.nodes} edges={flow.edges} fitView fitViewOptions={{ padding: compact ? 0.08 : 0.16, maxZoom: 1.1 }} minZoom={0.1} maxZoom={2} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} nodesDraggable={false} nodesConnectable={false} elementsSelectable proOptions={{ hideAttribution: true }}><Background gap={18} size={1} color="#e2e8f0" /><Controls showInteractive={false} /></ReactFlow></div>
-    {selectedNode ? <GraphNodeDetails node={selectedNode} /> : <div className="truncate border-t border-slate-200 px-5 py-3 text-xs text-slate-500">Select a node to inspect its current state.</div>}
+  const hasReport = report.metrics.length > 0 || report.issues.length > 0 || report.charts.length > 0;
+  return <ServiceCard className="relative flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <div className="flex items-center gap-2"><Play className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-medium text-slate-900">Execution graph</h2></div>
+      <div className="flex items-center gap-2">
+        {hasReport ? <button type="button" onClick={() => setSelection({ kind: "results" })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"><BarChart3 className="h-3.5 w-3.5" />Results</button> : null}
+        <button type="button" onClick={() => setSelection({ kind: "logs" })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"><FileText className="h-3.5 w-3.5" />Logs</button>
+      </div>
+    </div>
+    <div className="block min-h-0 flex-1 overflow-auto bg-[#fbfcfe] p-4 sm:hidden"><MobileGraphList graph={graph} selectedNodeId={selectedNodeId} onSelect={(nodeId) => setSelection({ kind: "node", nodeId })} /></div>
+    <div className="hidden min-h-0 flex-1 bg-[#fbfcfe] sm:block"><ReactFlow nodes={flow.nodes} edges={flow.edges} fitView fitViewOptions={{ padding: compact ? 0.08 : 0.16, maxZoom: 1.1 }} minZoom={0.1} maxZoom={2} onNodeClick={(_event, node) => setSelection({ kind: "node", nodeId: node.id })} nodesDraggable={false} nodesConnectable={false} elementsSelectable proOptions={{ hideAttribution: true }}><Background gap={18} size={1} color="#e2e8f0" /><Controls showInteractive={false} /></ReactFlow></div>
+    <RunGraphDetailsDrawer client={client} runId={runId} selection={selection} node={selectedNode} logs={logs} report={report} onClose={() => setSelection(null)} />
   </ServiceCard>;
 }
 
-function GraphNodeDetails({ node }: { node: RunGraphNode }) {
+function RunGraphDetailsDrawer({ client, runId, selection, node, logs, report, onClose }: { client: InspectionClient; runId: string; selection: DrawerSelection | null; node: RunGraphNode | null; logs: RunLogsContent; report: ReportContent; onClose: () => void }) {
+  const open = Boolean(selection);
+  const title = selection?.kind === "logs" ? "Logs" : selection?.kind === "results" ? "Results" : node?.label ?? "";
+  const subtitle = selection?.kind === "logs" ? `${logs.files.length} log file${logs.files.length === 1 ? "" : "s"}` : selection?.kind === "results" ? "Published results" : node ? node.type.replaceAll("_", " ") : "";
+  return <div aria-hidden={!open} className={`fixed inset-0 z-30 transition-colors duration-200 ease-out ${open ? "bg-slate-950/30" : "pointer-events-none bg-transparent"}`} onClick={onClose}>
+    <aside className={`absolute inset-y-0 right-0 flex w-full flex-col border-l border-slate-200 bg-white shadow-xl transition-transform duration-200 ease-out md:w-[440px] xl:w-[520px] ${open ? "translate-x-0" : "translate-x-full"}`} onClick={(event) => event.stopPropagation()}>
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
+          {subtitle ? <div className="mt-1 truncate text-xs font-medium uppercase text-slate-500">{subtitle}</div> : null}
+        </div>
+        <button type="button" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900" aria-label="Close details" title="Close" onClick={onClose}><X className="h-4 w-4" /></button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        {selection?.kind === "logs" ? <LogDetails logs={logs} /> : selection?.kind === "results" ? <ServiceReportContent metrics={report.metrics} issues={report.issues} charts={report.charts} /> : node ? <GraphNodeDetails client={client} runId={runId} node={node} /> : null}
+      </div>
+    </aside>
+  </div>;
+}
+
+function GraphNodeDetails({ client, runId, node }: { client: InspectionClient; runId: string; node: RunGraphNode }) {
+  const tableName = tableNameForNode(node);
+  const tableRows = useTableRows(client, runId, tableName);
   const detailEntries = Object.entries(node.details).filter(([, value]) => value !== null);
-  return <div className="border-t border-slate-200 px-5 py-3"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{node.label}</p><p className="mt-0.5 text-xs uppercase text-slate-500">{node.type.replaceAll("_", " ")}</p></div><StatusBadge status={node.status} /></div>{detailEntries.length ? <dl className="mt-3 grid gap-2 sm:grid-cols-2">{detailEntries.map(([key, value]) => <div key={key}><dt className="text-xs text-slate-500">{key.replaceAll("_", " ")}</dt><dd className="mt-0.5 truncate font-mono text-xs text-slate-700">{text(value)}</dd></div>)}</dl> : null}</div>;
+  return <div className="space-y-4">
+    <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{node.label}</p><p className="mt-0.5 text-xs uppercase text-slate-500">{node.type.replaceAll("_", " ")}</p></div><StatusBadge status={node.status} /></div>
+    {detailEntries.length ? <dl className="grid gap-2 sm:grid-cols-2">{detailEntries.map(([key, value]) => <div key={key}><dt className="text-xs text-slate-500">{key.replaceAll("_", " ")}</dt><dd className="mt-0.5 break-words font-mono text-xs text-slate-700">{text(value)}</dd></div>)}</dl> : null}
+    {tableName ? <div className="border-t border-slate-100 pt-4"><div className="mb-2 flex items-center gap-2"><Table2 className="h-4 w-4 text-slate-500" /><h3 className="text-sm font-medium text-slate-900">Rows</h3></div>{tableRows.error ? <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{tableRows.error}</p> : tableRows.value ? <ServiceDataTable rows={tableRows.value.rows} preferredColumns={tableRows.value.columns} /> : <p className="text-sm text-slate-500">Loading rows...</p>}</div> : null}
+  </div>;
+}
+
+function LogDetails({ logs }: { logs: RunLogsContent }) {
+  return <div>
+    <pre className="whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100">{logs.text || "No log text available."}</pre>
+  </div>;
+}
+
+function useTableRows(client: InspectionClient, runId: string, tableName: string | null): { value: RunTableRows | null; error: string | null } {
+  const [value, setValue] = useState<RunTableRows | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tableName) {
+      setValue(null);
+      setError(null);
+      return;
+    }
+    let active = true;
+    setValue(null);
+    setError(null);
+    client.tableRows(runId, tableName, 1, 100).then((rows) => {
+      if (active) setValue(rows);
+    }).catch((reason: unknown) => {
+      if (active) setError(reason instanceof Error ? reason.message : "Unable to load rows.");
+    });
+    return () => {
+      active = false;
+    };
+  }, [client, runId, tableName]);
+  return { value, error };
+}
+
+function tableNameForNode(node: RunGraphNode): string | null {
+  const fromDetails = ["table_name", "table", "name", "source_table"].map((key) => node.details[key]).find((value) => typeof value === "string" && value.trim());
+  if (typeof fromDetails === "string") return fromDetails;
+  const normalizedType = normalizeRecipeGraphType(node.type);
+  if (["table", "load", "retrieve_annotation"].includes(normalizedType) && node.label.trim()) return node.label;
+  return null;
 }
 
 function MobileGraphList({ graph, selectedNodeId, onSelect }: { graph: RunGraphContent; selectedNodeId: string | null; onSelect: (nodeId: string) => void }) {
@@ -101,15 +179,15 @@ function buildFlow(graph: RunGraphContent, compact = false): { nodes: Node[]; ed
       type: "smoothstep",
       animated: active,
       style: {
-        stroke: isInputEdge ? "#94a3b8" : active ? "#475569" : "#64748b",
-        strokeWidth: isInputEdge ? 1.4 : active ? 2.2 : 1.8,
-        opacity: isInputEdge ? 0.78 : 1,
+        stroke: isInputEdge ? "#dbe6f0" : active ? "#475569" : "#64748b",
+        strokeWidth: isInputEdge ? 1.2 : active ? 2.2 : 1.8,
+        opacity: isInputEdge ? 0.72 : 1,
       },
-      markerEnd: {
+      markerEnd: isInputEdge ? undefined : {
         type: MarkerType.ArrowClosed,
-        color: isInputEdge ? "#94a3b8" : active ? "#475569" : "#64748b",
-        width: isInputEdge ? 12 : 16,
-        height: isInputEdge ? 12 : 16,
+        color: active ? "#475569" : "#64748b",
+        width: 16,
+        height: 16,
       },
     } satisfies Edge;
   });

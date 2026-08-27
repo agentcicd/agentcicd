@@ -51,6 +51,12 @@ def test_local_inspection_store_exposes_project_resources_and_redacts_secrets(tm
     assert "sk-local-secret" not in json.dumps(report)
     assert "sk-local-secret" not in logs["text"]
     assert any(item["path"] == "logs/run.log" for item in logs["files"])
+    assert any(item["path"] == "logs/debug.log" for item in logs["files"])
+    assert any(item["path"] == "debug/fixture_traces/trace-local/spans.jsonl" for item in logs["files"])
+    assert not any(item["path"] == "logs/engine_execution_report.json" for item in logs["files"])
+    assert not any(item["path"] == "logs/engine_plan.json" for item in logs["files"])
+    assert "driver debug details" in logs["text"]
+    assert "fixture span details" in logs["text"]
 
 
 def test_local_inspection_server_serves_protocol_routes_and_rejects_traversal(tmp_path: Path) -> None:
@@ -84,6 +90,12 @@ def test_local_inspection_server_serves_protocol_routes_and_rejects_traversal(tm
         assert {"from_id": "input:name", "to_id": "table:result", "relation": "uses_input"} in graph_payload["edges"]
         assert progress_payload["completed_steps"] == 1
         assert any(item["path"] == "logs/run.log" for item in logs_payload["files"])
+        assert any(item["path"] == "logs/debug.log" for item in logs_payload["files"])
+        assert any(item["path"] == "debug/fixture_traces/trace-local/spans.jsonl" for item in logs_payload["files"])
+        assert not any(item["path"] == "logs/engine_execution_report.json" for item in logs_payload["files"])
+        assert not any(item["path"] == "logs/engine_plan.json" for item in logs_payload["files"])
+        assert "driver debug details" in logs_payload["text"]
+        assert "fixture span details" in logs_payload["text"]
         assert "sk-local-secret" not in logs_payload["text"]
         assert report_payload["issues"] == []
         assert public_runs_payload[0]["id"] == run_dir.name
@@ -138,6 +150,26 @@ def test_local_inspection_annotation_api_uses_request_task_review_dtos(tmp_path:
         "result": {"label": "pass"},
         "reviews": [review_payload["review"]],
     }
+
+
+def test_local_inspection_table_rows_hide_internal_row_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project, run_dir = _write_project_with_run(tmp_path)
+    table_dir = run_dir / "tables" / "result"
+    table_dir.mkdir(parents=True)
+    store = LocalInspectionStore(project)
+
+    monkeypatch.setattr(
+        store,
+        "_read_parquet_rows",
+        lambda _path, *, offset, limit: [
+            {"__agentcicd_row_id": "row-1", "value": "ok"},
+        ],
+    )
+
+    payload = store.table_rows(run_dir.name, "result", page=1, page_size=25)
+
+    assert payload["columns"] == ["value"]
+    assert payload["rows"] == [{"value": "ok"}]
 
 
 def test_local_inspection_graph_synthesizes_publish_source_table(tmp_path: Path) -> None:
@@ -199,6 +231,7 @@ def _write_project_with_run(tmp_path: Path) -> tuple[Path, Path]:
     (run_dir / "progress").mkdir(parents=True)
     (run_dir / "reports").mkdir()
     (run_dir / "logs").mkdir()
+    (run_dir / "debug" / "fixture_traces" / "trace-local").mkdir(parents=True)
     (run_dir / "progress" / "progress.jsonl").write_text(
         json.dumps(
             {
@@ -217,7 +250,13 @@ def _write_project_with_run(tmp_path: Path) -> tuple[Path, Path]:
     (run_dir / "reports" / "issues.json").write_text("[]", encoding="utf-8")
     (run_dir / "reports" / "charts.json").write_text("[]", encoding="utf-8")
     (run_dir / "logs" / "run.log").write_text("using sk-local-secret for local smoke\n", encoding="utf-8")
+    (run_dir / "logs" / "debug.log").write_text("driver debug details\n", encoding="utf-8")
     (run_dir / "logs" / "engine_execution_report.json").write_text("{}", encoding="utf-8")
+    (run_dir / "logs" / "engine_plan.json").write_text("{}", encoding="utf-8")
+    (run_dir / "debug" / "fixture_traces" / "trace-local" / "spans.jsonl").write_text(
+        '{"name":"fixture span details","secret":"sk-local-secret"}\n',
+        encoding="utf-8",
+    )
     return project, run_dir
 
 

@@ -254,6 +254,25 @@ def _lower_query_to_cells(
                     ]
                 ),
             )
+        limit = lowered_select.args.get("limit")
+        if isinstance(limit, exp.Limit) and isinstance(limit.expression, exp.Expression):
+            limit_cell = lower_sql_expression_to_cell(
+                limit.expression,
+                registry=registry,
+                assume_cell_columns=assume_cell_columns,
+                variant_columns=variant_columns,
+                non_cell_columns=non_cell_names,
+                source_table_name=source_table_name,
+                source_relation_names=source_relation_names,
+            )
+            lowered_select.set(
+                "limit",
+                exp.Limit(
+                    expression=limit_cell.value_sql,
+                    limit_options=limit.args.get("limit_options"),
+                    expressions=limit.args.get("expressions"),
+                ),
+            )
         aggregate_context = _query_has_aggregate_context(lowered_select)
         projection_alias_expressions = _select_projection_alias_expressions(lowered_select) if aggregate_context else {}
         order = lowered_select.args.get("order")

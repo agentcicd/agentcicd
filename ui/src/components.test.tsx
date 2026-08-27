@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { InputAndSecretReferences, ProjectInspector, RunSummary } from "./components";
 import { LabelStudioRenderer } from "./label-studio-renderer";
+import { ServiceDataTable } from "./service-renderers";
 import type { InspectionClient, ProjectInspection, RunInspection } from "./types";
 
 describe("inspection components", () => {
@@ -20,6 +21,19 @@ describe("inspection components", () => {
     render(<RunSummary run={run} />);
     expect(screen.getByText("2")).not.toBeNull();
     expect(screen.getByText("1")).not.toBeNull();
+  });
+
+  it("renders wrapped table cells as value or error only", () => {
+    render(<ServiceDataTable rows={[
+      { __agentcicd_row_id: "row-1", answer: { __agentcicd_cell: true, value: "pass", metadata: { errors: [], latency_ms: 20 } } },
+      { answer: { __agentcicd_cell: true, value: null, metadata: { errors: [{ code: "E_FIXTURE", message: "Boom", source: "fixture" }] } } },
+    ]} preferredColumns={["answer"]} />);
+    expect(screen.getByText("pass")).not.toBeNull();
+    expect(screen.getByText("E_FIXTURE: Boom")).not.toBeNull();
+    expect(screen.queryByText("metadata.errors")).toBeNull();
+    expect(screen.queryByText("__agentcicd_cell")).toBeNull();
+    expect(screen.queryByText("__agentcicd_row_id")).toBeNull();
+    expect(screen.queryByText("row-1")).toBeNull();
   });
 
   it("opens a selected recipe in the shared list and detail workspace", async () => {

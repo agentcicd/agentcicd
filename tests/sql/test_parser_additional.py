@@ -259,6 +259,49 @@ def test_parse_registered_python_runtime_function_preserves_ordered_arguments():
     assert "'aisystem.test', TO_VARIANT_OBJECT(ARRAY(" in sql_text
 
 
+def test_parse_registered_runtime_function_accepts_pair_list_message_literals():
+    script = """
+    CREATE BATCH TABLE out
+    SELECT aisystems.llm.chat(
+      messages=[
+        {
+          'role', 'system',
+          'content', 'You solve grade-school math word problems.'
+        },
+        {
+          'role', 'user',
+          'content', question
+        }
+      ],
+      aisystem_id='aisystem.test'
+    ) AS response_raw
+    FROM source_table;
+    """
+
+    blocks = AgentCICDScriptParser(
+        script,
+        registered_functions=[
+            {
+                "name": "aisystems.llm.chat",
+                "type": "py",
+                "call_name": "aisystems.llm.chat",
+                "runtime_alias": "aisystems_llm_chat",
+                "signature": {
+                    "parameters": [
+                        {"name": "aisystem_id", "has_default": False},
+                        {"name": "messages", "has_default": False},
+                    ]
+                },
+            }
+        ],
+    ).parse()
+    sql_text = blocks[0].result_expression.sql(dialect="spark")
+
+    assert "TO_VARIANT_OBJECT(ARRAY(" in sql_text
+    assert "TO_VARIANT_OBJECT(NAMED_STRUCT('role', 'system', 'content', 'You solve grade-school math word problems.'))" in sql_text
+    assert "TO_VARIANT_OBJECT(NAMED_STRUCT('role', 'user', 'content', question))" in sql_text
+
+
 def test_engine_lowering_registered_python_runtime_function_preserves_declared_argument_order():
     script = """
     CREATE BATCH TABLE out

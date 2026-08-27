@@ -134,7 +134,7 @@ def _coerce_value(raw_value: Any, *, declaration: DeclareInputStmt, project_dir:
     if input_type == "DATASET":
         return _coerce_dataset(raw_value, declaration.name, project_dir)
     if input_type == "AISYSTEM":
-        return _coerce_resource_id(raw_value, declaration.name, "aisystem.")
+        return _coerce_aisystem(raw_value, declaration.name)
     if input_type == "SECRET":
         return _coerce_resource_id(raw_value, declaration.name, "secret.")
     if input_type == "DATE":
@@ -183,6 +183,19 @@ def _coerce_resource_id(raw_value: Any, name: str, prefix: str) -> str:
     if not value.startswith(prefix):
         raise InputCoercionError(f"Input '{name}' must be an id starting with '{prefix}'")
     return value
+
+
+def _coerce_aisystem(raw_value: Any, name: str) -> str:
+    value = _coerce_string_scalar(raw_value, name).strip()
+    if not value:
+        raise InputCoercionError(f"Input '{name}' AISYSTEM must be non-empty")
+    if value.startswith("aisystem."):
+        return value
+    if "/" in value:
+        return value
+    raise InputCoercionError(
+        f"Input '{name}' must be an AI system id starting with 'aisystem.' or a provider model like 'openai/gpt-4.1-mini'"
+    )
 
 
 def _coerce_date(raw_value: Any, name: str) -> str:

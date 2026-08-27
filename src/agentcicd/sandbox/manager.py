@@ -6,6 +6,7 @@ import os
 import select
 import secrets
 import shlex
+import socket
 import subprocess
 import sys
 import threading
@@ -90,6 +91,9 @@ class WorkerRecord:
     last_used_at: float = field(default_factory=time.monotonic)
     warm: bool = False
     acquire_decision: str = "start_compatible"
+    process: subprocess.Popen[str] | None = field(default=None, repr=False)
+    address: str = ""
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
 
 @dataclass(frozen=True)
@@ -170,10 +174,12 @@ class WorkerLifecycle(Protocol):
 
 
 class SubprocessFunctionWorkerLifecycle:
-    """Worker substrate that invokes function_runner over a JSONL frame protocol."""
+    """Worker substrate that keeps function_runner alive as a local HTTP server."""
 
     def create(self, slot_id: str, *, session_key: str = "", fixture_id: str = "", image: str = "") -> WorkerRecord:
-        return WorkerRecord(worker_id=f"worker.{secrets.token_hex(8)}", slot_id=slot_id, session_key=session_key, fixture_id=fixture_id, image=image)
+        worker = WorkerRecord(worker_id=f"worker.{secrets.token_hex(8)}", slot_id=slot_id, session_key=session_key, fixture_id=fixture_id, image=image)
+        self._attach_process(worker, self._start_process())
+        return worker
 
     def invoke(
         self,
@@ -185,111 +191,155 @@ class SubprocessFunctionWorkerLifecycle:
         secrets_payload: Any = None,
     ) -> dict[str, Any]:
         timeout_seconds = max(0.1, float(os.getenv("AGENTCICD_SANDBOX_MANAGER_CALL_TIMEOUT_SECONDS", "300")))
-        payload = {
-            "function_name": function_name,
-            "args": arguments,
-            "trace": trace,
-            "secrets": secrets_payload,
-        }
-        command = [sys_executable(), "-m", "agentcicd.sandbox.function_runner", "--invoke-jsonl"]
+        payload = {"args": arguments, "trace": trace, "secrets": secrets_payload}
         started_at = time.monotonic()
+        collector = _TraceFrameCollector(trace)
+        with worker.lock:
+            process = self._healthy_process(worker)
+            address = str(worker.address or "").rstrip("/")
+            if not address:
+                worker.healthy = False
+                raise InvocationFailedError("Worker HTTP address is not available")
+            request = Request(
+                f"{address}/invoke/{function_name}",
+                data=json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"),
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+                    response_payload = json.loads(response.read().decode("utf-8") or "{}")
+            except HTTPError as exc:
+                response_payload = _read_http_error_payload(exc)
+                summary = collector.write_summary(
+                    status="error",
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                    error_code=str(response_payload.get("error") or "invoke_failed"),
+                    error_message=str(response_payload.get("detail") or response_payload.get("error") or "Worker invocation failed"),
+                    error_type="RuntimeError",
+                    http_status=exc.code,
+                )
+                raise InvocationFailedError(
+                    str(response_payload.get("detail") or response_payload.get("error") or "Worker invocation failed"),
+                    code=str(response_payload.get("error") or "invoke_failed"),
+                    trace_summary=summary,
+                ) from exc
+            except TimeoutError as exc:
+                process.kill()
+                worker.healthy = False
+                summary = collector.write_summary(
+                    status="error",
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                    error_code="AGENTCICD_RUNTIME_TIMEOUT",
+                    error_message=f"Fixture invocation exceeded {timeout_seconds:g}s",
+                    error_type="TimeoutError",
+                    http_status=408,
+                )
+                raise InvocationTimeoutError(f"Fixture invocation exceeded {timeout_seconds:g}s", trace_summary=summary) from exc
+            except Exception as exc:
+                if process.poll() is not None:
+                    stderr = self._collect_stderr(process)
+                    detail = stderr or f"Worker exited with returncode={process.returncode}"
+                else:
+                    detail = str(exc)
+                worker.healthy = False
+                summary = collector.write_summary(
+                    status="error",
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                    error_code="invoke_failed",
+                    error_message=detail,
+                    error_type=type(exc).__name__,
+                    http_status=400,
+                )
+                raise InvocationFailedError(detail, trace_summary=summary) from exc
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        for record in response_payload.get("trace_records") or []:
+            collector.add_record(record)
+        summary = collector.write_summary(status="ok", duration_ms=duration_ms)
+        worker.invocation_count += 1
+        worker.last_used_at = time.monotonic()
+        payload_out: dict[str, Any] = {"result": response_payload.get("result")}
+        if summary:
+            payload_out["trace_summary"] = summary
+        return payload_out
+
+    def stop(self, worker: WorkerRecord, *, reason: str) -> None:
+        self._stop_process(worker)
+        worker.healthy = False
+        worker.last_used_at = time.monotonic()
+
+    def clear(self, worker: WorkerRecord, *, reason: str) -> None:
+        self._stop_process(worker)
+        self._attach_process(worker, self._start_process())
+        worker.last_used_at = time.monotonic()
+
+    def status(self, worker: WorkerRecord) -> dict[str, Any]:
+        process = worker.process
+        if process is not None and process.poll() is not None:
+            worker.healthy = False
+        return {"healthy": worker.healthy}
+
+    def _healthy_process(self, worker: WorkerRecord) -> subprocess.Popen[str]:
+        process = worker.process
+        if process is None or process.poll() is not None:
+            self._attach_process(worker, self._start_process())
+            worker.healthy = True
+        assert worker.process is not None
+        return worker.process
+
+    @classmethod
+    def _attach_process(cls, worker: WorkerRecord, process_with_address: tuple[subprocess.Popen[str], str]) -> None:
+        process, address = process_with_address
+        worker.process = process
+        worker.address = address
+
+    @staticmethod
+    def _start_process() -> tuple[subprocess.Popen[str], str]:
+        port = _free_tcp_port()
+        address = f"http://127.0.0.1:{port}"
+        command = [sys_executable(), "-m", "agentcicd.sandbox.function_runner", "--port", str(port)]
         process = subprocess.Popen(  # noqa: S603
             command,
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
             env=os.environ.copy(),
         )
-        assert process.stdin is not None
-        assert process.stdout is not None
-        process.stdin.write(json.dumps(payload, separators=(",", ":"), default=str))
-        process.stdin.close()
-        collector = _TraceFrameCollector(trace)
-        result_payload: dict[str, Any] | None = None
-        error_payload: dict[str, Any] | None = None
         try:
-            while True:
-                if time.monotonic() - started_at > timeout_seconds:
-                    process.kill()
-                    summary = collector.write_summary(
-                        status="error",
-                        duration_ms=int((time.monotonic() - started_at) * 1000),
-                        error_code="AGENTCICD_RUNTIME_TIMEOUT",
-                        error_message=f"Fixture invocation exceeded {timeout_seconds:g}s",
-                        error_type="TimeoutError",
-                        http_status=408,
-                    )
-                    raise InvocationTimeoutError(f"Fixture invocation exceeded {timeout_seconds:g}s", trace_summary=summary)
-                ready, _, _ = select.select([process.stdout], [], [], 0.05)
-                line = process.stdout.readline() if ready else ""
-                if line:
-                    frame = _parse_jsonl_frame(line)
-                    frame_type = str(frame.get("type") or "")
-                    if frame_type == "trace_record":
-                        collector.add_record(frame.get("record"))
-                    elif frame_type == "result":
-                        result_payload = frame
-                    elif frame_type == "error":
-                        error_payload = frame
-                    continue
-                if process.poll() is not None:
-                    break
-                time.sleep(0.01)
-        finally:
+            _wait_for_http_server(f"{address}/health", process, timeout_seconds=10.0)
+        except Exception:
             if process.poll() is None:
                 process.kill()
-            stderr = ""
+            raise
+        return process, address
+
+    @staticmethod
+    def _collect_stderr(process: subprocess.Popen[str]) -> str:
+        try:
+            _stdout, stderr = process.communicate(timeout=1)
+            return stderr.strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _stop_process(worker: WorkerRecord) -> None:
+        process = worker.process
+        worker.process = None
+        worker.address = ""
+        if process is None:
+            return
+        if process.poll() is None:
             try:
-                _stdout, stderr = process.communicate(timeout=1)
+                process.terminate()
+                process.wait(timeout=2)
             except Exception:
-                stderr = ""
-
-        duration_ms = int((time.monotonic() - started_at) * 1000)
-        if result_payload is not None:
-            for record in result_payload.get("trace_records") or []:
-                collector.add_record(record)
-            summary = collector.write_summary(status="ok", duration_ms=duration_ms)
-            worker.invocation_count += 1
-            worker.last_used_at = time.monotonic()
-            payload_out: dict[str, Any] = {"result": result_payload.get("result")}
-            if summary:
-                payload_out["trace_summary"] = summary
-            return payload_out
-        if error_payload is not None:
-            summary = collector.write_summary(
-                status="error",
-                duration_ms=duration_ms,
-                error_code=str(error_payload.get("error") or "invoke_failed"),
-                error_message=str(error_payload.get("detail") or "Worker invocation failed"),
-                error_type="RuntimeError",
-                http_status=400,
-            )
-            raise InvocationFailedError(
-                str(error_payload.get("detail") or "Worker invocation failed"),
-                code=str(error_payload.get("error") or "invoke_failed"),
-                trace_summary=summary,
-            )
-        summary = collector.write_summary(
-            status="error",
-            duration_ms=duration_ms,
-            error_code="invoke_failed",
-            error_message=stderr.strip() or "Worker exited without result",
-            error_type="RuntimeError",
-            http_status=400,
-        )
-        raise InvocationFailedError(stderr.strip() or "Worker exited without result", trace_summary=summary)
-
-    def stop(self, worker: WorkerRecord, *, reason: str) -> None:
-        worker.healthy = False
-        worker.last_used_at = time.monotonic()
-
-    def clear(self, worker: WorkerRecord, *, reason: str) -> None:
-        worker.last_used_at = time.monotonic()
-
-    def status(self, worker: WorkerRecord) -> dict[str, Any]:
-        return {"healthy": worker.healthy}
+                process.kill()
+        try:
+            process.communicate(timeout=1)
+        except Exception:
+            pass
 
 
 class DockerWorkerLifecycle:
@@ -759,6 +809,7 @@ class SandboxManager:
         self._warm_workers: dict[str, WorkerRecord] = {}
         self._metrics = ManagerMetrics()
         self._last_worker_create_at = 0.0
+        self._next_no_lease_slot = 0
         self._prepare_warm_workers()
 
     def register_capacity(self, *, driver_base_url: str) -> None:
@@ -973,7 +1024,7 @@ class SandboxManager:
         return ""
 
     def _acquire_worker(self, lease: InvocationLease | None, arguments: dict[str, Any]) -> WorkerRecord:
-        slot_id = lease.worker_slot_id if lease is not None else f"{self.config.manager_id}.slot-1"
+        slot_id = lease.worker_slot_id if lease is not None else self._next_local_slot_id()
         fixture_id = lease.fixture_id if lease is not None else ""
         image = self._worker_image_for_fixture(fixture_id)
         if self.config.pool_kind == "service":
@@ -982,6 +1033,12 @@ class SandboxManager:
             session_key = self._session_key(lease, arguments)
             return self._session_worker(slot_id, session_key, fixture_id=fixture_id, image=image)
         return self._sandbox_worker(slot_id, fixture_id=fixture_id, image=image)
+
+    def _next_local_slot_id(self) -> str:
+        with self._lock:
+            slot_number = (self._next_no_lease_slot % max(1, self.config.max_workers)) + 1
+            self._next_no_lease_slot += 1
+        return f"{self.config.manager_id}.slot-{slot_number}"
 
     def _service_worker(self, slot_id: str, *, fixture_id: str = "", image: str = "") -> WorkerRecord:
         with self._lock:
@@ -1693,6 +1750,42 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout_seconds: float) -> 
     return response_payload if isinstance(response_payload, dict) else {}
 
 
+def _read_http_error_payload(exc: HTTPError) -> dict[str, Any]:
+    body = exc.read().decode("utf-8", errors="replace")
+    try:
+        parsed = json.loads(body or "{}")
+    except json.JSONDecodeError:
+        return {"error": "invoke_failed", "detail": body}
+    return parsed if isinstance(parsed, dict) else {"error": "invoke_failed", "detail": body}
+
+
+def _free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_http_server(url: str, process: subprocess.Popen[str], *, timeout_seconds: float) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    last_error: BaseException | None = None
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            stderr = ""
+            try:
+                _stdout, stderr = process.communicate(timeout=1)
+            except Exception:
+                pass
+            raise RuntimeError(stderr.strip() or f"Worker exited with returncode={process.returncode}")
+        try:
+            with urlopen(url, timeout=0.25) as response:  # noqa: S310
+                if 200 <= int(response.status) < 500:
+                    return
+        except Exception as exc:
+            last_error = exc
+        time.sleep(0.05)
+    raise RuntimeError(f"Timed out waiting for worker HTTP server at {url}: {last_error}")
+
+
 def _run_jsonl_worker_process(
     command: list[str],
     payload: dict[str, Any],
@@ -1943,6 +2036,7 @@ def _worker_env_from_current_process() -> tuple[tuple[str, str], ...]:
         "AGENTCICD_FUNCTION_ENTRYPOINT_NAME",
         "AGENTCICD_FUNCTION_BUILTIN_CALL_NAME",
         "AGENTCICD_FUNCTION_BUILTIN_ENTRYPOINT",
+        "AGENTCICD_FUNCTION_BUILTINS_JSON",
         "AGENTCICD_RUN_OBJECT_URI",
     }
     allowed_prefixes = (

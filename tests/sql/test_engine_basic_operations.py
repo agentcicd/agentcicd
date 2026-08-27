@@ -34,6 +34,21 @@ def test_basic_operations_case_coalesce_cast_and_limit():
     assert "LIMIT 10" in lowered_sql
 
 
+def test_limit_declared_int_input_uses_wrapped_value():
+    script = """
+    DECLARE INPUT sample_size INT DEFAULT 5;
+
+    CREATE BATCH TABLE out
+    SELECT id, text
+    FROM prepared
+    LIMIT sample_size;
+    """
+
+    lowered_sql = _lower_cells_sql(script)
+
+    assert "LIMIT sample_size.value" in lowered_sql
+
+
 def test_basic_operations_having_distinct_and_cte():
     script = """
     CREATE BATCH TABLE out

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import json
 import time
 import webbrowser
 from enum import Enum
@@ -9,7 +11,9 @@ import typer
 
 from agentcicd.config import BackendName
 from agentcicd.errors import AgentCICDError
-from agentcicd.runtime.local_runner import RunResult, prepare_run, run_prepared, run_project, validate_project
+from agentcicd.runtime.local_runner import RunResult, prepare_run, run_prepared, run_project, transpile_project, validate_project
+from agentcicd.sql.engine.plan import payload_to_dict
+from agentcicd.sql.engine.runner import transpiled_plan_manifest, write_transpiled_plan_artifacts
 from agentcicd.ui_server import serve_local_inspection, start_local_inspection_server
 
 
@@ -25,11 +29,43 @@ class UiMode(str, Enum):
 
 @app.command()
 def validate(project_dir: Path = typer.Argument(..., help="AgentCICD project directory.")) -> None:
+    _quiet_cli_dependency_loggers()
     try:
         spec = validate_project(project_dir)
     except AgentCICDError as exc:
         raise typer.BadParameter(str(exc)) from exc
     typer.echo(f"Validated {spec.paths.root}")
+
+
+@app.command()
+def transpile(
+    project_dir: Path = typer.Argument(..., help="AgentCICD project directory."),
+    output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Directory for transpiled SQL files."),
+    manifest: bool = typer.Option(False, "--manifest", help="Print the plan manifest instead of SQL."),
+) -> None:
+    _quiet_cli_dependency_loggers()
+    try:
+        result = transpile_project(project_dir)
+    except AgentCICDError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    if output_dir is not None:
+        plan_manifest = write_transpiled_plan_artifacts(result.steps, output_dir)
+        (output_dir / "engine_plan.json").write_text(json.dumps(plan_manifest, indent=2) + "\n", encoding="utf-8")
+        typer.echo(f"Wrote transpiled SQL for {result.spec.paths.root} to {output_dir}")
+        return
+
+    if manifest:
+        typer.echo(json.dumps(transpiled_plan_manifest(list(result.steps)), indent=2))
+        return
+
+    for index, step in enumerate(result.steps):
+        sql_text = payload_to_dict(step.payload).get("sql")
+        if not isinstance(sql_text, str) or not sql_text.strip():
+            continue
+        typer.echo(f"-- Step {index}: {step.kind} {step.name}")
+        typer.echo(sql_text.strip())
+        typer.echo()
 
 
 @app.command()
@@ -39,6 +75,7 @@ def run(
     ui: UiMode = typer.Option(UiMode.AUTO, "--ui", help="Start the local inspection UI or disable it."),
     open_browser: bool = typer.Option(False, "--open", help="Open the local inspection URL in a browser."),
 ) -> None:
+    _quiet_cli_dependency_loggers()
     if ui == UiMode.OFF:
         _run_without_ui(project_dir, backend)
         return
@@ -98,6 +135,7 @@ def ui_serve(
     project_dir: Path = typer.Argument(..., help="AgentCICD project directory."),
     port: int = typer.Option(0, "--port", min=0, max=65535, help="Loopback port, or 0 to choose one."),
 ) -> None:
+    _quiet_cli_dependency_loggers()
     try:
         serve_local_inspection(project_dir, port=port)
     except AgentCICDError as exc:
@@ -109,6 +147,7 @@ def ui_open(
     run_dir: Path = typer.Argument(..., help="Path to a local .agentcicd run directory."),
     port: int = typer.Option(0, "--port", min=0, max=65535, help="Loopback port, or 0 to choose one."),
 ) -> None:
+    _quiet_cli_dependency_loggers()
     resolved_run_dir = run_dir.expanduser().resolve()
     try:
         project_dir = resolved_run_dir.parents[2]
@@ -127,4 +166,9 @@ def ui_open(
 
 
 def main() -> None:
+    _quiet_cli_dependency_loggers()
     app()
+
+
+def _quiet_cli_dependency_loggers() -> None:
+    logging.getLogger("sqlglot").setLevel(logging.ERROR)

@@ -12,7 +12,7 @@ from agentcicd.sql.engine.entrypoint import EngineEntrypoint
 from agentcicd.sql.engine.annotation_store import HttpAnnotationStore
 from agentcicd.sql.engine.plan import ExecutionPlanStep, payload_to_dict
 from agentcicd.sql.engine.publication_store import DriverArtifactPublicationStore, HttpPublicationStore
-from agentcicd.sql.engine.runtime import ExecutionReport
+from agentcicd.sql.engine.runtime import ExecutionReport, execute_plan, execute_plan_dag
 from agentcicd.sql.engine.spark_backend import SparkExecutionBackend, build_spark_session, default_backend_paths
 from agentcicd.sql.engine.progress_reporter import ProgressReporter
 from agentcicd.sql.engine.reusable_stages import reusable_table_names_from_env
@@ -80,7 +80,12 @@ def run_script_with_new_engine(
             input_values=config.input_values or {},
             external_tables=reusable_table_names_from_env(),
         )
-        plan = entrypoint.compile_plan(include_cells=config.include_cells)
+        statements, registry = entrypoint.resolve_with_registry(apply_defaults=True)
+        plan = entrypoint.compile_resolved_plan(
+            statements,
+            registry=registry,
+            include_cells=config.include_cells,
+        )
         _write_plan_artifacts(config.working_dir, plan)
         reporter = ProgressReporter(Path(config.progress_file)) if config.progress_file else ProgressReporter(None)
         max_parallel_stages = max(1, int(config.max_parallel_stages or _int_env("AGENTCICD_MAX_PARALLEL_STAGES", 1)))
@@ -89,14 +94,23 @@ def run_script_with_new_engine(
                 spark.conf.set("spark.scheduler.mode", "FAIR")
             except Exception:
                 pass
-        report = entrypoint.execute(
-            backend,
-            include_cells=config.include_cells,
-            progress_callback=reporter.emit_event,
-            max_parallel_stages=max_parallel_stages,
-            wait_for_annotations=config.wait_for_annotations,
-            annotation_poll_seconds=config.annotation_poll_seconds,
-        )
+        if max_parallel_stages > 1:
+            report = execute_plan_dag(
+                plan,
+                backend,
+                progress_callback=reporter.emit_event,
+                max_parallel_stages=max_parallel_stages,
+                wait_for_annotations=config.wait_for_annotations,
+                annotation_poll_seconds=config.annotation_poll_seconds,
+            )
+        else:
+            report = execute_plan(
+                plan,
+                backend,
+                progress_callback=reporter.emit_event,
+                wait_for_annotations=config.wait_for_annotations,
+                annotation_poll_seconds=config.annotation_poll_seconds,
+            )
         _write_execution_report(config.working_dir, report)
         return report
     finally:
@@ -187,25 +201,41 @@ def _write_execution_report(working_dir: str, report: ExecutionReport) -> None:
 def _write_plan_artifacts(working_dir: str, plan: list[ExecutionPlanStep]) -> None:
     logs_dir = Path(working_dir) / "logs"
     transpiled_dir = logs_dir / "transpiled"
-    transpiled_dir.mkdir(parents=True, exist_ok=True)
+    manifest = write_transpiled_plan_artifacts(plan, transpiled_dir)
+    (logs_dir / "engine_plan.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
+
+def transpiled_plan_manifest(plan: list[ExecutionPlanStep]) -> list[dict[str, object]]:
     manifest = []
     for index, step in enumerate(plan):
-        entry = {
+        payload = payload_to_dict(step.payload)
+        entry: dict[str, object] = {
             "index": index,
             "kind": step.kind,
             "name": step.name,
             "dependencies": list(step.dependencies),
-            "payload_keys": sorted(payload_to_dict(step.payload).keys()),
+            "payload_keys": sorted(payload.keys()),
         }
+        sql_text = payload.get("sql")
+        if isinstance(sql_text, str) and sql_text.strip():
+            entry["sql_file"] = _transpiled_sql_filename(index, step)
         manifest.append(entry)
+    return manifest
 
+
+def write_transpiled_plan_artifacts(plan: list[ExecutionPlanStep], output_dir: str | Path) -> list[dict[str, object]]:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    manifest = transpiled_plan_manifest(plan)
+    for index, step in enumerate(plan):
         sql_text = payload_to_dict(step.payload).get("sql")
         if isinstance(sql_text, str) and sql_text.strip():
-            artifact_name = f"{index:02d}_{step.kind}_{_sanitize_artifact_name(step.name)}.sql"
-            (transpiled_dir / artifact_name).write_text(sql_text.strip() + "\n", encoding="utf-8")
+            (output_path / _transpiled_sql_filename(index, step)).write_text(sql_text.strip() + "\n", encoding="utf-8")
+    return manifest
 
-    (logs_dir / "engine_plan.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+def _transpiled_sql_filename(index: int, step: ExecutionPlanStep) -> str:
+    return f"{index:02d}_{step.kind}_{_sanitize_artifact_name(step.name)}.sql"
 
 
 def _archive_working_dir_to_object_storage(working_dir: str) -> None:

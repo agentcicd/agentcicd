@@ -17,7 +17,11 @@ def test_fixture_source_generates_registered_function(tmp_path: Path) -> None:
     plan = build_fixture_runtime_plan(spec)
 
     assert [function.call_name for function in plan.registered_functions] == ["local.echo"]
+    assert [function.id for function in plan.registered_functions] == ["local.echo"]
     assert plan.registered_functions[0].entrypoint_name == "echo"
+    assert plan.registered_functions[0].signature[-1].name == "pool"
+    assert plan.registered_functions[0].signature[-1].type_sql == "POOL"
+    assert plan.registered_functions[0].pool_kind == "service"
 
 
 def test_validate_project_resolves_fixture_source_function(tmp_path: Path) -> None:
@@ -44,6 +48,55 @@ def test_local_fixture_runtime_invokes_through_sandbox_manager(tmp_path: Path) -
             payload = json.loads(response.read().decode("utf-8"))
 
     assert payload == {"result": "hello!"}
+
+
+def test_local_fixture_runtime_attaches_referenced_builtin_service_function(tmp_path: Path) -> None:
+    project = _write_fixture_project(tmp_path)
+    (project / "recipe.sql").write_text(
+        textwrap.dedent(
+            """
+            CREATE BATCH TABLE prepared
+            SELECT aisystems.llm.chat(
+              aisystem_id = 'openai/gpt-4.1-mini',
+              messages = parse_json('[]')
+            ) AS response_raw;
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    spec = load_project(project)
+
+    with local_fixture_runtime(spec) as runtime:
+        functions = {function.name: function for function in runtime.registered_functions}
+
+    assert "aisystems.llm.chat" in functions
+    assert functions["aisystems.llm.chat"].base_url
+    assert functions["aisystems.llm.chat"].invoke_path == "/invoke/chat"
+
+
+def test_local_fixture_runtime_starts_for_builtin_service_function_without_user_fixtures(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "recipe.sql").write_text(
+        textwrap.dedent(
+            """
+            CREATE BATCH TABLE prepared
+            SELECT aisystems.llm.chat(
+              aisystem_id = 'openai/gpt-4.1-mini',
+              messages = parse_json('[]')
+            ) AS response_raw;
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    spec = load_project(project)
+
+    with local_fixture_runtime(spec) as runtime:
+        names = [function.name for function in runtime.registered_functions]
+
+    assert names == ["aisystems.llm.chat"]
 
 
 def _write_fixture_project(tmp_path: Path) -> Path:

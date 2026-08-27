@@ -310,6 +310,16 @@ def lower_expr_to_cell(
             if argument_cells:
                 return _safe_parse_json_cell(argument_cells[0][1])
             value_sql = lower_parse_json(exp.Null(), variant_columns=variant_columns)
+        elif function_name.lower() == "try_variant_get" and argument_cells:
+            value_sql = exp.Anonymous(
+                this=function_name,
+                expressions=[
+                    _safe_parse_json_value(argument_cells[0][1]),
+                    *[cell.value_sql.copy() for _, cell in argument_cells[1:]],
+                ],
+            )
+            value_sql.meta["agentcicd_variant_access"] = True
+            return _json_access_cell(argument_cells[0][1], value_sql)
         else:
             value_sql = exp.Anonymous(this=function_name, expressions=lowered_args)
         if function_name.lower() == "get":
@@ -1135,6 +1145,7 @@ def _safe_parse_json_cell(source_cell: CellComponentsIR) -> CellComponentsIR:
 
 
 def _json_access_cell(source_cell: CellComponentsIR, value_sql: exp.Expression) -> CellComponentsIR:
+    safe_value_sql = _safe_json_access_value_sql(source_cell, value_sql)
     input_errors = _coalesce_or_empty_errors(source_cell.error_sql, copy=False)
     access_error = _error_item(
         "AGENTCICD_JSON_ACCESS_ERROR",
@@ -1145,13 +1156,46 @@ def _json_access_cell(source_cell: CellComponentsIR, value_sql: exp.Expression) 
         input_errors,
         exp.or_(
             exp.Is(this=source_cell.value_sql.copy(), expression=exp.Null()),
-            exp.Is(this=value_sql.copy(), expression=exp.Null()),
+            exp.Is(this=safe_value_sql.copy(), expression=exp.Null()),
         ),
         access_error,
     )
     return CellComponentsIR(
-        value_sql=value_sql,
+        value_sql=safe_value_sql,
         error_sql=error_sql,
+    )
+
+
+def _safe_json_access_value_sql(source_cell: CellComponentsIR, value_sql: exp.Expression) -> exp.Expression:
+    if function_name(value_sql) != "try_variant_get":
+        return value_sql
+    args = list(value_sql.expressions or [])
+    if len(args) < 2:
+        return value_sql
+    parsed_value = exp.Anonymous(
+        this="TRY_PARSE_JSON",
+        expressions=[_cast_cell_value_to_string(source_cell)],
+    )
+    parsed_value.meta["agentcicd_variant_access"] = True
+    rewritten = value_sql.copy()
+    rewritten.set("expressions", [parsed_value, *[arg.copy() for arg in args[1:]]])
+    rewritten.meta["agentcicd_variant_access"] = True
+    return rewritten
+
+
+def _safe_parse_json_value(source_cell: CellComponentsIR) -> exp.Expression:
+    parsed_value = exp.Anonymous(
+        this="TRY_PARSE_JSON",
+        expressions=[_cast_cell_value_to_string(source_cell)],
+    )
+    parsed_value.meta["agentcicd_variant_access"] = True
+    return parsed_value
+
+
+def _cast_cell_value_to_string(source_cell: CellComponentsIR) -> exp.Expression:
+    return exp.Cast(
+        this=source_cell.value_sql.copy(),
+        to=exp.DataType.build("STRING"),
     )
 
 

@@ -713,6 +713,9 @@ def _function_source_paths() -> list[str]:
 
 
 def load_builtin_function() -> None:
+    for entrypoint_name, call_name in _builtin_entrypoint_map().items():
+        _register_builtin_function(call_name, entrypoint_name)
+
     builtin_call_name = os.getenv("AGENTCICD_FUNCTION_BUILTIN_CALL_NAME", "").strip()
     if not builtin_call_name:
         return
@@ -724,6 +727,24 @@ def load_builtin_function() -> None:
     if not entrypoint_name:
         raise ValueError("AGENTCICD_FUNCTION_BUILTIN_ENTRYPOINT is required for builtin function runtime")
 
+    _register_builtin_function(builtin_call_name, entrypoint_name)
+
+
+def _builtin_entrypoint_map() -> dict[str, str]:
+    raw = os.getenv("AGENTCICD_FUNCTION_BUILTINS_JSON", "").strip()
+    if not raw:
+        return {}
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("AGENTCICD_FUNCTION_BUILTINS_JSON must be a JSON object")
+    return {
+        str(entrypoint).strip(): str(call_name).strip()
+        for entrypoint, call_name in parsed.items()
+        if str(entrypoint).strip() and str(call_name).strip()
+    }
+
+
+def _register_builtin_function(builtin_call_name: str, entrypoint_name: str) -> None:
     builtin = udf(builtin_call_name)
 
     async def _invoke_builtin(**kwargs: Any) -> Any:
@@ -1133,6 +1154,9 @@ class FunctionRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path.rstrip("/") in {"", "/health"}:
+            self._write_json({"status": "ok"})
+            return
         if self.path == "/manifest":
             self._write_json(build_manifest())
             return
@@ -1164,24 +1188,23 @@ class FunctionRequestHandler(BaseHTTPRequestHandler):
             response_payload["trace_records"] = trace_records
         self._write_json(response_payload)
 
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
 
 def serve(port: int = 8080) -> None:
     httpd = ThreadingHTTPServer(("0.0.0.0", port), FunctionRequestHandler)
     httpd.serve_forever()
 
 
-def invoke_jsonl() -> int:
-    raw_body = sys.stdin.read()
+def _invoke_jsonl_payload(payload: dict[str, Any]) -> int:
     try:
-        payload = json.loads(raw_body or "{}")
         function_name = str(payload.get("function_name") or "").strip()
         if not function_name:
             raise ValueError("function_name is required")
         arguments = payload.get("args", {})
         if not isinstance(arguments, dict):
             raise ValueError("args must be an object")
-        load_user_source()
-        load_builtin_function()
         with _remote_runtime_trace_jsonl_context(payload.get("trace")) as trace:
             result = asyncio.run(invoke_function(function_name, arguments, payload.get("secrets")))
             trace_records = trace.records() if trace else None
@@ -1198,13 +1221,57 @@ def invoke_jsonl() -> int:
         return 1
 
 
-def main() -> int:
-    if "--invoke-jsonl" in sys.argv:
-        return invoke_jsonl()
+def invoke_jsonl() -> int:
+    raw_body = sys.stdin.read()
+    try:
+        payload = json.loads(raw_body or "{}")
+    except Exception as exc:
+        _write_jsonl_frame({"type": "error", "error": "invalid_request", "detail": str(exc)})
+        return 1
     load_user_source()
     load_builtin_function()
-    serve()
+    return _invoke_jsonl_payload(payload)
+
+
+def invoke_jsonl_worker() -> int:
+    load_user_source()
+    load_builtin_function()
+    exit_code = 0
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except Exception as exc:
+            _write_jsonl_frame({"type": "error", "error": "invalid_request", "detail": str(exc)})
+            exit_code = 1
+            continue
+        status = _invoke_jsonl_payload(payload)
+        if status:
+            exit_code = status
+    return exit_code
+
+
+def main() -> int:
+    if "--invoke-jsonl-worker" in sys.argv:
+        return invoke_jsonl_worker()
+    if "--invoke-jsonl" in sys.argv:
+        return invoke_jsonl()
+    port = _port_from_argv(sys.argv)
+    load_user_source()
+    load_builtin_function()
+    serve(port)
     return 0
+
+
+def _port_from_argv(argv: list[str]) -> int:
+    if "--port" not in argv:
+        return 8080
+    index = argv.index("--port")
+    try:
+        return int(argv[index + 1])
+    except (IndexError, TypeError, ValueError) as exc:
+        raise ValueError("--port requires an integer value") from exc
 
 
 if __name__ == "__main__":
