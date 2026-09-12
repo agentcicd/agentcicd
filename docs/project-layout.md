@@ -1,6 +1,6 @@
 # Project Layout
 
-An AgentCICD project is a directory. The project loader requires `recipe.sql`; other files are optional.
+An AgentCICD project is a directory. The project loader uses `recipe.sql` when present. If there is no `recipe.sql` and exactly one root-level `.sql` file exists, that file is selected automatically. If multiple root-level `.sql` files exist, pass `--recipe` or `-r` to choose one.
 
 ```text
 support-eval/
@@ -14,9 +14,10 @@ support-eval/
   agentcicd.toml
 ```
 
-## Required File
+## Recipe File
 
-- `recipe.sql`: the evaluation recipe. It declares inputs, defines named tables, calls fixtures, scores outputs, and publishes reports or other artifacts.
+- `recipe.sql`: the conventional evaluation recipe name.
+- `<name>.sql`: an alternate root-level recipe name. It is selected automatically only when it is the only root-level `.sql` file, or explicitly with `--recipe <name>.sql`.
 
 ## Optional Files
 

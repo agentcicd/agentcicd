@@ -67,6 +67,19 @@ def test_source_loader_loads_local_filesystem_path_directly(tmp_path: Path):
     assert ("load", "parquet", "/tmp/raw.parquet") in spark.read.calls
 
 
+def test_source_loader_reads_remote_json_as_text_when_requested(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    loader = SparkSourceLoader(_layout(tmp_path))
+    spark = _FakeSpark()
+    monkeypatch.setattr(loader, "_download_http_source", lambda url: "/tmp/answers.json")
+
+    loader.load_dataframe(
+        spark, "https://example.com/answers.json", StatementOptions.from_mapping({"format": "text"})
+    )
+
+    assert ("load", "text", "/tmp/answers.json") in spark.read.calls
+    assert not any(call[0] == "option" for call in spark.read.calls)
+
+
 def test_source_loader_keeps_relative_file_path_local(tmp_path: Path):
     loader = SparkSourceLoader(_layout(tmp_path))
     spark = _FakeSpark()

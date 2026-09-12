@@ -28,8 +28,8 @@ from agentcicd.sql.observability.redaction import redacted_preview
 class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, LocalRuntimeControlsMixin):
     """Read-only, redaction-aware view over one folder-project and its run artifacts."""
 
-    def __init__(self, project_dir: str | Path) -> None:
-        self._spec = load_project(project_dir)
+    def __init__(self, project_dir: str | Path, *, recipe: str | Path | None = None) -> None:
+        self._spec = load_project(project_dir, recipe=recipe)
         digest = hashlib.sha256(self._spec.paths.root.as_posix().encode("utf-8")).hexdigest()[:16]
         self._project_id = f"local-{digest}"
         self._secret_values = tuple(secret.value for secret in self._spec.secrets if secret.value)
@@ -443,7 +443,8 @@ class LocalInspectionStore(LocalAnnotationApiMixin, LocalRecipeGraphMixin, Local
         return datetime.now(timezone.utc).isoformat()
 
     def _recipe_resource(self) -> InspectionResource:
-        return InspectionResource(id="recipe.sql", name="recipe.sql", status="available")
+        recipe_name = self._spec.paths.recipe_sql.name
+        return InspectionResource(id=recipe_name, name=recipe_name, status="available")
 
     def _fixture_resources(self) -> tuple[InspectionResource, ...]:
         used_names = self._used_fixture_names()

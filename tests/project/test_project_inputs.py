@@ -250,6 +250,39 @@ def test_load_project_reads_backend_from_config(tmp_path: Path) -> None:
     assert spec.config.run.max_parallel_stages == 2
 
 
+def test_load_project_uses_only_sql_file_when_recipe_sql_is_absent(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "smoke.sql").write_text("CREATE BATCH TABLE prepared SELECT 1 AS value;\n", encoding="utf-8")
+
+    spec = load_project(project)
+
+    assert spec.paths.recipe_sql == (project / "smoke.sql").resolve()
+    assert "SELECT 1 AS value" in spec.recipe_sql
+
+
+def test_load_project_rejects_ambiguous_sql_files_without_recipe_choice(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "alpha.sql").write_text("CREATE BATCH TABLE alpha SELECT 1 AS value;\n", encoding="utf-8")
+    (project / "beta.sql").write_text("CREATE BATCH TABLE beta SELECT 2 AS value;\n", encoding="utf-8")
+
+    with pytest.raises(ProjectLoadError, match=r"Pass --recipe with one of: alpha\.sql, beta\.sql"):
+        load_project(project)
+
+
+def test_load_project_uses_explicit_recipe_when_multiple_sql_files_exist(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "alpha.sql").write_text("CREATE BATCH TABLE alpha SELECT 1 AS value;\n", encoding="utf-8")
+    (project / "beta.sql").write_text("CREATE BATCH TABLE beta SELECT 2 AS value;\n", encoding="utf-8")
+
+    spec = load_project(project, recipe="beta.sql")
+
+    assert spec.paths.recipe_sql == (project / "beta.sql").resolve()
+    assert "SELECT 2 AS value" in spec.recipe_sql
+
+
 def test_validate_project_does_not_execute_spark(tmp_path: Path) -> None:
     project = _write_project(
         tmp_path,

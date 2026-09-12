@@ -48,8 +48,13 @@ class LocalInspectionServer:
         self.close()
 
 
-def start_local_inspection_server(project_dir: str | Path, *, port: int = 0) -> LocalInspectionServer:
-    store = LocalInspectionStore(project_dir)
+def start_local_inspection_server(
+    project_dir: str | Path,
+    *,
+    port: int = 0,
+    recipe: str | Path | None = None,
+) -> LocalInspectionServer:
+    store = LocalInspectionStore(project_dir, recipe=recipe)
     handler = _handler_for(store)
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     thread = threading.Thread(target=server.serve_forever, name="agentcicd-local-inspection", daemon=True)
@@ -57,8 +62,8 @@ def start_local_inspection_server(project_dir: str | Path, *, port: int = 0) -> 
     return LocalInspectionServer(store=store, server=server, thread=thread)
 
 
-def serve_local_inspection(project_dir: str | Path, *, port: int = 0) -> None:
-    with start_local_inspection_server(project_dir, port=port) as server:
+def serve_local_inspection(project_dir: str | Path, *, port: int = 0, recipe: str | Path | None = None) -> None:
+    with start_local_inspection_server(project_dir, port=port, recipe=recipe) as server:
         print(f"AgentCICD UI: {server.project_url()}", flush=True)
         try:
             server.thread.join()

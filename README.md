@@ -2,7 +2,11 @@
 
 AgentCICD is an open-source evaluation workflow engine for AI systems. It helps teams turn support-bot checks, agent regression tests, model-judge workflows, and human review loops into repeatable runs with evidence.
 
-An AgentCICD evaluation is a folder: a `recipe.sql` workflow, optional Python fixtures, runtime inputs, and secret references. The workflow prepares cases, calls systems or evaluators, scores outputs, publishes results, and leaves behind a run you can inspect.
+[![Introducing AgentCICD: Create, Run, Debug & Compare AI Evaluations](https://img.youtube.com/vi/GFmvWdpmsrE/hqdefault.jpg)](https://youtu.be/GFmvWdpmsrE)
+
+[Watch the introduction on YouTube](https://youtu.be/GFmvWdpmsrE) — a walkthrough with live model calls and evaluation debugging.
+
+An AgentCICD evaluation is a folder: a SQL workflow, optional Python fixtures, runtime inputs, and secret references. The workflow prepares cases, calls systems or evaluators, scores outputs, publishes results, and leaves behind a run you can inspect.
 
 AI teams usually start evaluation with a notebook, a spreadsheet, or a small script. That breaks down once the product has multiple prompts, tools, policies, agents, judges, reviewers, and release gates. AgentCICD is for making that quality work operational: rerunnable, inspectable, reviewable, controlled, and suitable for CI.
 
@@ -53,7 +57,7 @@ For the complete quickstart recipe, see [Quickstart example](docs/examples/quick
 
 ## How It Works
 
-1. Create a project folder with `recipe.sql`.
+1. Create a project folder with `recipe.sql`, or one root-level `.sql` file.
 2. Declare runtime inputs and secret references outside the recipe.
 3. Add Python fixtures for target calls, judges, parsers, tools, or simulators.
 4. Run the project with `agentcicd run`.
@@ -73,7 +77,7 @@ support-eval/
   agentcicd.toml
 ```
 
-- `recipe.sql`: evaluation stages, fixture calls, scoring, annotation publishing, and report publishing.
+- `recipe.sql`: conventional recipe name for evaluation stages, fixture calls, scoring, annotation publishing, and report publishing. If absent, AgentCICD auto-selects the only root-level `.sql` file; use `--recipe <file.sql>` when a project has multiple SQL files.
 - `fixture_*.py`: optional Python functions available to the recipe as `local.<function_name>`.
 - `inputs.yaml`: values for SQL `DECLARE INPUT` declarations. YAML supports scalars, lists, and objects when the declared type accepts them.
 - `secrets.yaml`: local secret records. Reference a secret from `inputs.yaml` as `secret.<KEY>`; do not embed credentials in SQL or commit this file.

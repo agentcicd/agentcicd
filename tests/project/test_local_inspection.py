@@ -59,6 +59,18 @@ def test_local_inspection_store_exposes_project_resources_and_redacts_secrets(tm
     assert "fixture span details" in logs["text"]
 
 
+def test_local_inspection_store_exposes_selected_recipe_name(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "smoke.sql").write_text("CREATE BATCH TABLE result SELECT 1 AS value;\n", encoding="utf-8")
+
+    store = LocalInspectionStore(project)
+
+    assert store.project()["resources"]["recipes"][0]["id"] == "smoke.sql"
+    assert store.public_recipes()["items"][0]["id"] == "smoke.sql"
+    assert store.public_recipe("smoke.sql")["source_text"].startswith("CREATE BATCH TABLE result")
+
+
 def test_local_inspection_server_serves_protocol_routes_and_rejects_traversal(tmp_path: Path) -> None:
     project, run_dir = _write_project_with_run(tmp_path)
 

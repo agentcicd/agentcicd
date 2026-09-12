@@ -38,15 +38,15 @@ class TranspiledProject:
     steps: tuple[ExecutionPlanStep, ...]
 
 
-def validate_project(project_dir: str | Path) -> LocalRunSpec:
-    spec = load_project(project_dir)
+def validate_project(project_dir: str | Path, *, recipe: str | Path | None = None) -> LocalRunSpec:
+    spec = load_project(project_dir, recipe=recipe)
     fixture_plan = build_fixture_runtime_plan(spec)
     validate_recipe(spec.recipe_sql, registered_functions=fixture_plan.registered_functions)
     return spec
 
 
-def transpile_project(project_dir: str | Path) -> TranspiledProject:
-    spec = load_project(project_dir)
+def transpile_project(project_dir: str | Path, *, recipe: str | Path | None = None) -> TranspiledProject:
+    spec = load_project(project_dir, recipe=recipe)
     with local_fixture_runtime(spec) as fixture_runtime:
         entrypoint = EngineEntrypoint(
             spec.recipe_sql,
@@ -62,13 +62,13 @@ def transpile_project(project_dir: str | Path) -> TranspiledProject:
     return TranspiledProject(spec=spec, steps=tuple(plan))
 
 
-def run_project(project_dir: str | Path, *, backend: BackendName | None = None) -> RunResult:
-    prepared = prepare_run(project_dir, backend=backend)
+def run_project(project_dir: str | Path, *, backend: BackendName | None = None, recipe: str | Path | None = None) -> RunResult:
+    prepared = prepare_run(project_dir, backend=backend, recipe=recipe)
     return run_prepared(prepared)
 
 
-def prepare_run(project_dir: str | Path, *, backend: BackendName | None = None) -> PreparedRun:
-    spec = validate_project(project_dir)
+def prepare_run(project_dir: str | Path, *, backend: BackendName | None = None, recipe: str | Path | None = None) -> PreparedRun:
+    spec = validate_project(project_dir, recipe=recipe)
     selected_backend = backend or spec.backend
     if selected_backend == BackendName.VALIDATE:
         return PreparedRun(spec=spec, backend=selected_backend, run_dir=spec.paths.run_root)

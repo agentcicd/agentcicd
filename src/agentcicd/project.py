@@ -30,13 +30,11 @@ class LocalRunSpec:
         return self.config.run.backend
 
 
-def load_project(project_dir: str | Path) -> LocalRunSpec:
+def load_project(project_dir: str | Path, *, recipe: str | Path | None = None) -> LocalRunSpec:
     root = Path(project_dir).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise ProjectLoadError(f"Project directory does not exist: {root}")
-    recipe_path = root / "recipe.sql"
-    if not recipe_path.exists() or not recipe_path.is_file():
-        raise ProjectLoadError(f"Project requires recipe.sql: {recipe_path}")
+    recipe_path = _resolve_recipe_path(root, recipe=recipe)
     recipe_sql = recipe_path.read_text(encoding="utf-8")
     config = load_project_config(root)
     inputs = load_inputs(root, recipe_sql)
@@ -50,6 +48,32 @@ def load_project(project_dir: str | Path) -> LocalRunSpec:
         secrets=secrets,
         fixture_sources=_discover_fixture_sources(root, config),
     )
+
+
+def _resolve_recipe_path(root: Path, *, recipe: str | Path | None) -> Path:
+    if recipe is not None:
+        candidate = Path(recipe).expanduser()
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        candidate = candidate.resolve()
+        if not candidate.exists() or not candidate.is_file():
+            raise ProjectLoadError(f"Recipe SQL file does not exist: {candidate}")
+        if candidate.suffix.lower() != ".sql":
+            raise ProjectLoadError(f"Recipe must be a .sql file: {candidate}")
+        return candidate
+
+    canonical = root / "recipe.sql"
+    if canonical.is_file():
+        return canonical.resolve()
+
+    sql_files = sorted(path.resolve() for path in root.glob("*.sql") if path.is_file())
+    if len(sql_files) == 1:
+        return sql_files[0]
+    if not sql_files:
+        raise ProjectLoadError(f"Project requires a recipe SQL file: add {canonical} or pass --recipe <file>")
+
+    choices = ", ".join(path.name for path in sql_files)
+    raise ProjectLoadError(f"Project has multiple SQL files. Pass --recipe with one of: {choices}")
 
 
 def _discover_fixture_sources(root: Path, config: ProjectConfig) -> tuple[Path, ...]:

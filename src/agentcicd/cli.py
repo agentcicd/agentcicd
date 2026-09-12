@@ -28,24 +28,38 @@ class UiMode(str, Enum):
 
 
 @app.command()
-def validate(project_dir: Path = typer.Argument(..., help="AgentCICD project directory.")) -> None:
+def validate(
+    project_dir: Path = typer.Argument(..., help="AgentCICD project directory."),
+    recipe: Path | None = typer.Option(
+        None,
+        "--recipe",
+        "-r",
+        help="Recipe SQL file to run, relative to the project directory unless absolute.",
+    ),
+) -> None:
     _quiet_cli_dependency_loggers()
     try:
-        spec = validate_project(project_dir)
+        spec = validate_project(project_dir, recipe=recipe)
     except AgentCICDError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    typer.echo(f"Validated {spec.paths.root}")
+    typer.echo(f"Validated {spec.paths.root} ({spec.paths.recipe_sql.name})")
 
 
 @app.command()
 def transpile(
     project_dir: Path = typer.Argument(..., help="AgentCICD project directory."),
+    recipe: Path | None = typer.Option(
+        None,
+        "--recipe",
+        "-r",
+        help="Recipe SQL file to transpile, relative to the project directory unless absolute.",
+    ),
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Directory for transpiled SQL files."),
     manifest: bool = typer.Option(False, "--manifest", help="Print the plan manifest instead of SQL."),
 ) -> None:
     _quiet_cli_dependency_loggers()
     try:
-        result = transpile_project(project_dir)
+        result = transpile_project(project_dir, recipe=recipe)
     except AgentCICDError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
@@ -72,21 +86,27 @@ def transpile(
 def run(
     project_dir: Path = typer.Argument(..., help="AgentCICD project directory."),
     backend: BackendName | None = typer.Option(None, "--backend", help="Execution backend."),
+    recipe: Path | None = typer.Option(
+        None,
+        "--recipe",
+        "-r",
+        help="Recipe SQL file to run, relative to the project directory unless absolute.",
+    ),
     ui: UiMode = typer.Option(UiMode.AUTO, "--ui", help="Start the local inspection UI or disable it."),
     open_browser: bool = typer.Option(False, "--open", help="Open the local inspection URL in a browser."),
 ) -> None:
     _quiet_cli_dependency_loggers()
     if ui == UiMode.OFF:
-        _run_without_ui(project_dir, backend)
+        _run_without_ui(project_dir, backend, recipe=recipe)
         return
     try:
-        prepared = prepare_run(project_dir, backend=backend)
+        prepared = prepare_run(project_dir, backend=backend, recipe=recipe)
     except AgentCICDError as exc:
         raise typer.BadParameter(str(exc)) from exc
     if prepared.backend == BackendName.VALIDATE:
-        _run_without_ui(project_dir, backend)
+        _run_without_ui(project_dir, backend, recipe=recipe)
         return
-    with start_local_inspection_server(project_dir) as server:
+    with start_local_inspection_server(project_dir, recipe=recipe) as server:
         run_url = server.run_url(prepared.run_dir.name)
         typer.echo(f"Inspect this run: {run_url}")
         if open_browser:
@@ -111,9 +131,9 @@ def run(
         raise typer.Exit(code=1)
 
 
-def _run_without_ui(project_dir: Path, backend: BackendName | None) -> None:
+def _run_without_ui(project_dir: Path, backend: BackendName | None, *, recipe: Path | None = None) -> None:
     try:
-        result = run_project(project_dir, backend=backend)
+        result = run_project(project_dir, backend=backend, recipe=recipe)
     except AgentCICDError as exc:
         raise typer.BadParameter(str(exc)) from exc
     _print_run_result(result)
@@ -133,11 +153,17 @@ def _print_run_result(result: RunResult) -> None:
 @ui_app.command("serve")
 def ui_serve(
     project_dir: Path = typer.Argument(..., help="AgentCICD project directory."),
+    recipe: Path | None = typer.Option(
+        None,
+        "--recipe",
+        "-r",
+        help="Recipe SQL file to inspect, relative to the project directory unless absolute.",
+    ),
     port: int = typer.Option(0, "--port", min=0, max=65535, help="Loopback port, or 0 to choose one."),
 ) -> None:
     _quiet_cli_dependency_loggers()
     try:
-        serve_local_inspection(project_dir, port=port)
+        serve_local_inspection(project_dir, port=port, recipe=recipe)
     except AgentCICDError as exc:
         raise typer.BadParameter(str(exc)) from exc
 

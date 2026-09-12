@@ -113,7 +113,7 @@ class LocalAnnotationApiMixin:
             local_project_id=self.project_id,
             queue_id=f"annq.{self._slug(queue_name)}",
             run_id=reference.run_id,
-            recipe_id="recipe.sql",
+            recipe_id=self._recipe_resource().id,
             cluster_id=None,
             source_table=str(manifest.get("source_table") or manifest.get("table") or ""),
             publish_alias=str(manifest.get("publish_alias")) if manifest.get("publish_alias") else None,

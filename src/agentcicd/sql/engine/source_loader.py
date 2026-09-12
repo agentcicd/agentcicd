@@ -57,10 +57,10 @@ class SparkSourceLoader(SourceLoader):
             )
         if is_directory_format(normalized):
             return spark_session.read.format("parquet")
-        if normalized in {"parquet", "delta"}:
+        if normalized in {"parquet", "delta", "text"}:
             return spark_session.read.format(normalized)
         raise ValueError(
-            f"Unsupported LOAD format '{source_format}'. Supported formats: json, jsonl, ndjson, parquet, delta, csv."
+            f"Unsupported LOAD format '{source_format}'. Supported formats: json, jsonl, ndjson, parquet, delta, csv, text."
         )
 
     def _load_http_dataframe(self, spark_session, path: str, options: StatementOptions):

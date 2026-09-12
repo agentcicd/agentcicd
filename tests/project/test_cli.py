@@ -17,6 +17,33 @@ def test_validate_command(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Validated" in result.output
+    assert "recipe.sql" in result.output
+
+
+def test_validate_command_accepts_recipe_option(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "alpha.sql").write_text("CREATE BATCH TABLE alpha SELECT 1 AS value;\n", encoding="utf-8")
+    (project / "beta.sql").write_text("CREATE BATCH TABLE beta SELECT 2 AS value;\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["validate", str(project), "--recipe", "beta.sql"])
+
+    assert result.exit_code == 0
+    assert "Validated" in result.output
+    assert "beta.sql" in result.output
+
+
+def test_validate_command_lists_sql_choices_when_ambiguous(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "alpha.sql").write_text("CREATE BATCH TABLE alpha SELECT 1 AS value;\n", encoding="utf-8")
+    (project / "beta.sql").write_text("CREATE BATCH TABLE beta SELECT 2 AS value;\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["validate", str(project)])
+
+    assert result.exit_code != 0
+    assert "Pass --recipe with one of:" in result.output
+    assert "alpha.sql, beta.sql" in result.output
 
 
 def test_transpile_command_prints_lowered_sql(tmp_path: Path) -> None:
@@ -38,6 +65,18 @@ def test_transpile_command_prints_lowered_sql(tmp_path: Path) -> None:
     assert "-- Step 0: declare_variable name" in result.output
     assert "create_batch_table prepared" in result.output
     assert "SELECT name AS value" in result.output
+
+
+def test_transpile_command_accepts_short_recipe_option(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "alpha.sql").write_text("CREATE BATCH TABLE alpha SELECT 1 AS value;\n", encoding="utf-8")
+    (project / "beta.sql").write_text("CREATE BATCH TABLE beta SELECT 2 AS value;\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["transpile", str(project), "-r", "beta.sql"])
+
+    assert result.exit_code == 0
+    assert "create_batch_table beta" in result.output
 
 
 def test_transpile_command_writes_sql_files_and_manifest(tmp_path: Path) -> None:
